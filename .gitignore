@@ -1,0 +1,14 @@
+# R related
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Python related
+__pycache__/
+
+# User defined
+data/
+notes/
+readings/
+.vscode/
