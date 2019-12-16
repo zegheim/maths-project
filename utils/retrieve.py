@@ -64,7 +64,6 @@ def main():
     server = ECMWFDataServer()
     start = datetime.date(2003, 1, 1)
     date_ranges = get_date_ranges(start)
-
     for date_range in date_ranges:
         retrieve(server, date_range)
 
