@@ -39,16 +39,6 @@ ina.simplified.lines <- layer(sp.lines(ina.simplified))
 
 dates <- strftime(strptime(names(frpfire.ina.masked), format = "X%Y.%m.%d"), format = "%d-%m-%Y")
 
-i <- 4630
-levelplot(
-  frpfire.ina.masked[[i]], 
-  par.settings = map.theme, 
-  at = my.at, 
-  colorkey = my.color.key,
-  xlab.top = dates[i],
-  margin = FALSE) + 
-  ina.simplified.lines
-
 saveGIF({
   for (i in 4384:4748) {
     l <- levelplot(
