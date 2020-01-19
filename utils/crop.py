@@ -14,7 +14,7 @@ def crop(infile, outfile, extent):
 def main():
     infiles = glob.glob("/media/zegheim/Justin/nc/*.nc")
     args = [
-        (infile, infile.replace("/nc/", "/nc_ina/"), (95, 141, -11, 6.1))
+        (infile, infile.replace("/nc/", "/nc_aus/"), (112.9, 159.2, -55.2, -9.2))
         for infile in infiles
     ]
 
