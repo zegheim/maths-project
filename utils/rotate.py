@@ -19,7 +19,6 @@ def main():
     months = ["{:02d}".format(m) for m in range(1, 13)]
     years = ["{:02d}".format(y) for y in range(3, 20)]
     yms = [y + m + ".nc" for m in months for y in years]
-    yms = ["1302.nc", "1402.nc"]
 
     args = [
         (
