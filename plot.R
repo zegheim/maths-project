@@ -2,15 +2,14 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
-cname <- "Indonesia"
-csv.name <- "~/Documents/diss/data/df.csv"
 data.dir <- "~/Documents/diss/data"
-fname.fire <- "/media/zegheim/Justin_SSD/nc_ina/cams_gfas_ga_1507.nc"
-fname.temp <- "/media/zegheim/Justin_SSD/cpc_global_temp/tmax.2015.nc"
-plot.title <- "No. of wildfire occurrences in Jul 2015"
-proj.str <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
-vname <- "frpfire"
 working.dir <- "~/Documents/diss/"
+
+cname <- "Australia"
+fname <- "/media/zegheim/Justin_SSD/nc_aus/cams_gfas_ga_0612.nc"
+vname <- "frpfire"
+
+plot.title <- "No. of wildfire occurrences in Dec 2006"
 
 ### DO NOT EDIT BELOW THIS LINE ###
 
@@ -18,11 +17,9 @@ working.dir <- "~/Documents/diss/"
 # IMPORTS #
 ###########
 
-library(elevatr)
 library(raster)
 library(rasterVis)
 library(RColorBrewer)
-library(rgdal)
 library(rgeos)
 
 ########################
@@ -57,44 +54,30 @@ getSmallPolys <- function(poly, minarea=0.01) {
   return(poly)
 }
 
-# Helper function to count how many NA values in a RasterLayer
-countMissing <- function(raster) {
-  sum(is.na(getValues(raster)))
+# Plot flattened maps
+plotMap <- function(raster, title, lines) {
+  my.at <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
+  my.brks <- seq(0, 9, length.out = 9)
+  my.color.key <- list(at = my.brks, labels = list(at = my.brks, labels = my.at))
+  map.theme <- rasterTheme(region = c("#006400", brewer.pal(8, "Oranges")), panel.background = list(col = "skyblue"))
+  levelplot(
+    raster,
+    par.settings = map.theme, 
+    at = my.at,
+    colorkey = my.color.key,
+    main = title,
+    margin = FALSE,
+  ) + lines
 }
 
 ########
-# MAIN #
+# PLOT #
 ########
 
 setwd(working.dir)
-
-# simplify the geometry of the polygon shapes
 cpoly <- getData("GADM", download = FALSE, path = data.dir, country = cname, level = 1)
-cpoly.simplified <- gSimplify(getSmallPolys(cpoly), tol = 0.01, topologyPreserve = TRUE)
-
-# get fire data
-c.var <- raster::brick(fname.fire, varname = vname)
+# Simplify the geometry of the polygon shapes
+cpoly.simplified <- gSimplify(getSmallPolys(cpoly, minarea=1.875e-2), tol = 1e-2, topologyPreserve = TRUE)
+c.var <- raster::brick(fname, varname = vname)
 c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
-c.var.flat.lowres <- aggregate(c.var.flat, fact = 5, fun = sum)
-c.df <- as.data.frame(c.var.flat.lowres, xy = TRUE, na.rm = TRUE)
-
-# get elevation data
-elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
-elev.cropped <- resample(crop(elev, c.var.flat), c.var.flat, method="bilinear")
-elev.cropped.lowres <- aggregate(elev.cropped, fact = 5, fun = mean)
-names(elev.cropped.lowres) <- "elevation"
-
-# get temperature data
-temp <- raster::brick(fname.temp)
-temp.1507 <- temp[[182:212]]
-temp.1507.flattened <- crop(flattenRaster(temp.1507, cpoly, mean), c.var.flat)
-temp.1507.resampled <- aggregate(resample(temp.1507.flattened, c.var.flat, method = "bilinear"), fact = 5, fun = mean)
-names(temp.1507.resampled) <- "max.temp"
-
-# coerce to data.frame
-df <- as.data.frame(mask(stack(c.var.flat.lowres, elev.cropped.lowres, temp.1507.resampled), cpoly), xy = TRUE, na.rm = TRUE)
-
-write.csv(df, csv.name)
-
-
-
+plotMap(crop(mask(c.var.flat, cpoly.simplified), cpoly.simplified), plot.title, layer(sp.lines(cpoly.simplified)))

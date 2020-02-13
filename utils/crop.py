@@ -1,26 +1,41 @@
 import cdo
 import glob
-import multiprocessing as mp
+
+from datetime import datetime
 
 
-def crop(infile, outfile, extent):
-    client = cdo.Cdo()
+def crop(client, infile, outfile, extent):
     extent = ",".join(map(str, extent))
-    print("Cropping {} with extent={}".format(infile, extent))
     client.sellonlatbox(extent, input=infile, output=outfile)
-    print("Done. Results saved at {}".format(outfile))
 
 
 def main():
-    infiles = glob.glob("/media/zegheim/Justin/nc/*.nc")
-    args = [
-        (infile, infile.replace("/nc/", "/nc_aus/"), (112.9, 159.2, -55.2, -9.2))
-        for infile in infiles
-    ]
+    client = cdo.Cdo()
+    infiles = glob.glob("/media/zegheim/SEAGATE_POR/data_sst_MUR/raw/*.nc")
+    start = datetime.now()
+    for idx, infile in enumerate(infiles):
+        print(
+            "Progress: {:0>3d}/{}. Time elapsed: {:0>8.2f}s".format(
+                idx, len(infiles), (datetime.now() - start).total_seconds()
+            ),
+            sep="\r",
+            flush=True,
+        )
+        outfile = infile.replace("/raw/", "/cropped/")
+        extent = (-5, -4, 52, 54)
+        try:
+            crop(client, infile, outfile, extent)
+        except:
+            print("Could not crop {}. Skipping".format(infile.split("/")[-1]))
+            continue
 
-    with mp.Pool(processes=mp.cpu_count()) as pool:
-        pool.starmap_async(crop, args).get()
+    print(
+        "Done. Total time elapsed: {:.2f}s".format(
+            (datetime.now() - start).total_seconds()
+        )
+    )
 
 
 if __name__ == "__main__":
     main()
+
