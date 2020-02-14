@@ -5,10 +5,8 @@
 cname <- "Indonesia"
 csv.name <- "~/Documents/diss/data/df.csv"
 data.dir <- "~/Documents/diss/data"
-fname.fire <- "/media/zegheim/Justin_SSD/nc_ina/cams_gfas_ga_1507.nc"
-fname.temp <- "/media/zegheim/Justin_SSD/cpc_global_temp/tmax.2015.nc"
-plot.title <- "No. of wildfire occurrences in Jul 2015"
-proj.str <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+fname.fire <- "/media/zegheim/Justin_SSD/nc_ina/gfas/cams_gfas_ga_1507.nc"
+fname.temp <- "/media/zegheim/Justin_SSD/nc_ina/tair/tair_2015.nc"
 vname <- "frpfire"
 working.dir <- "~/Documents/diss/"
 
@@ -94,7 +92,4 @@ names(temp.1507.resampled) <- "max.temp"
 # coerce to data.frame
 df <- as.data.frame(mask(stack(c.var.flat.lowres, elev.cropped.lowres, temp.1507.resampled), cpoly), xy = TRUE, na.rm = TRUE)
 
-write.csv(df, csv.name)
-
-
-
+write.csv(df, csv.name, row.names = FALSE)
