@@ -2,7 +2,8 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
-fname <- "~/Documents/diss/data/df.csv"
+fname <- "~/Documents/diss/data/df_hires.csv"
+res <- 0.1
 seed <- 17071996L
 working.dir <- "~/Documents/diss/"
 
@@ -12,7 +13,6 @@ working.dir <- "~/Documents/diss/"
 # IMPORTS #
 ###########
 
-library(boot)
 library(INLA)
 library(MASS)
 library(Matrix)
@@ -24,10 +24,47 @@ library(tidyverse)
 # HELPER FUNCTIONS #
 ####################
 
-getLaplMtrx <- function(df, res) {
+getLaplMtrxSpd <- function(df, res, verbose=FALSE) {
   rows <- nrow(df)
+  
+  if (verbose) {
+    pb <- txtProgressBar(0, rows, style = 3)
+  }
+ 
   G <- Matrix(0, nrow = rows, ncol = rows, sparse = TRUE)
   for (i in seq(rows)) {
+    if (verbose) {
+      setTxtProgressBar(pb, i)
+    }
+    
+    nghbrs <- which(abs(df$x - df$x[i]) <= res & abs(df$y - df$y[i]) <= res)
+    for (nghbr in nghbrs){
+      if (nghbr != i) {
+        G[i, nghbr] <- -1
+        G[i, i] <- G[i, i] + 1
+      }
+    }
+  }
+  
+  if (verbose) {
+    close(pb)
+  }
+  
+  return(G)
+}
+
+getLaplMtrx <- function(df, res, verbose=FALSE) {
+  rows <- nrow(df)
+  
+  if (verbose) {
+    pb <- txtProgressBar(0, rows, style = 3)
+  }
+  
+  G <- Matrix(0, nrow = rows, ncol = rows, sparse = TRUE)
+  for (i in seq(rows)) {
+    if (verbose) {
+      setTxtProgressBar(pb, i)
+    }
     for (j in seq(rows)) {
       if ((abs(df$x[i] - df$x[j]) <= res) && (abs(df$y[i] - df$y[j]) <= res) && (i != j)) {
         G[i, i] <- G[i, i] + 1
@@ -35,6 +72,11 @@ getLaplMtrx <- function(df, res) {
       }
     }
   }
+  
+  if (verbose) {
+    close(pb)
+  }
+  
   return(G)
 }
 
@@ -287,7 +329,7 @@ X[1:(2*ncol(df))] <- as.numeric(c(
   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
 ))
 theta <- c(0, 0)
-G <- getLaplMtrx(df, 0.5)
+G <- getLaplMtrx(df, res, verbose = TRUE)
 
 counter <- 0
 opt <- optimx(theta, margPost, df = df, X = X, G = G, method = "Nelder-Mead", itnmax = 1000, control = list(kkt = FALSE))
