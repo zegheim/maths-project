@@ -3,10 +3,10 @@
 ###########################
 
 cname <- "Indonesia"
-csv.name <- "~/Documents/diss/data/df.csv"
+csv.name <- "~/Documents/diss/data/df_hires.csv"
 data.dir <- "~/Documents/diss/data"
 fname.fire <- "/media/zegheim/Justin_SSD/nc_ina/gfas/cams_gfas_ga_1507.nc"
-fname.temp <- "/media/zegheim/Justin_SSD/nc_ina/tair/tair_2015.nc"
+fname.temp <- "/media/zegheim/Justin_SSD/nc_ina/tair/tair_2015_cropped.nc"
 vname <- "frpfire"
 working.dir <- "~/Documents/diss/"
 
@@ -73,23 +73,20 @@ cpoly.simplified <- gSimplify(getSmallPolys(cpoly), tol = 0.01, topologyPreserve
 # get fire data
 c.var <- raster::brick(fname.fire, varname = vname)
 c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
-c.var.flat.lowres <- aggregate(c.var.flat, fact = 5, fun = sum)
-c.df <- as.data.frame(c.var.flat.lowres, xy = TRUE, na.rm = TRUE)
 
 # get elevation data
 elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
 elev.cropped <- resample(crop(elev, c.var.flat), c.var.flat, method="bilinear")
-elev.cropped.lowres <- aggregate(elev.cropped, fact = 5, fun = mean)
-names(elev.cropped.lowres) <- "elevation"
+names(elev.cropped) <- "elevation"
 
 # get temperature data
 temp <- raster::brick(fname.temp)
-temp.1507 <- temp[[182:212]]
-temp.1507.flattened <- crop(flattenRaster(temp.1507, cpoly, mean), c.var.flat)
-temp.1507.resampled <- aggregate(resample(temp.1507.flattened, c.var.flat, method = "bilinear"), fact = 5, fun = mean)
-names(temp.1507.resampled) <- "max.temp"
+temp.1507 <- temp[[7]]
+temp.1507.resampled <- resample(temp.1507, c.var.flat)
+names(temp.1507.resampled) <- "avg.temp"
 
 # coerce to data.frame
-df <- as.data.frame(mask(stack(c.var.flat.lowres, elev.cropped.lowres, temp.1507.resampled), cpoly), xy = TRUE, na.rm = TRUE)
+df <- as.data.frame(mask(stack(c.var.flat, elev.cropped, temp.1507.resampled), cpoly), xy = TRUE, na.rm = TRUE)
+df$avg.temp <- df$avg.temp - 273.15
 
 write.csv(df, csv.name, row.names = FALSE)

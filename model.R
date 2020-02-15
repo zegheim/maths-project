@@ -62,21 +62,18 @@ gradLogLik <- function(df, par) {
   ZB_PLUS <- Z %*% B_PLUS
   ZBPX <- ZB_PLUS + X
   
-  grad <- Matrix(0, nrow = length(par))
+  # common intermediate (temporary) term
+  tmp <- Y - exp(ZBPX) - exp(ZBPX) / (exp(exp(ZBPX)) - 1) 
   
+  grad <- Matrix(0, nrow = length(par))
   for (i in seq(ncol(Z))) {
     # grads for B_ZERO
-    grad[i] <- sum(
-      ifelse(Y != 0, 1 / (1 + exp(ZB_ZERO)) * Z[, i], - 1 / (1 + exp(-ZB_ZERO)) * Z[, i])
-    )
+    grad[i] <- sum(ifelse(Y != 0, 1 / (1 + exp(-ZB_ZERO)), -1 / (1 + exp(ZB_ZERO))) * Z[,i])
     # grads for B_PLUS
-    grad[i+ncol(Z)] <- sum(
-      ifelse(Y != 0, Z[, i] * (Y - exp(ZB_PLUS) - exp(ZBPX - exp(ZBPX)) / (1 - exp(-exp(ZBPX)))), 0)
-    )
+    grad[i+ncol(Z)] <- sum(ifelse(Y != 0, tmp, 0) * Z[,i])
   }
-  
   # grads for X
-  grad[(2*ncol(Z)+1):length(par)] <- ifelse(Y != 0, Y - exp(ZBPX - exp(ZBPX)) / (1 - exp(-exp(ZBPX))), 0)
+  grad[(2*ncol(Z)+1):length(par)] <- ifelse(Y != 0, tmp, 0)
   
   return(grad)
 }
@@ -109,41 +106,29 @@ hessLogLik <- function(df, par) {
   
   hess <- Matrix(0, nrow = length(par), ncol = length(par))
   
+  # intermediate term for B_ZERO
+  tmp_b0 <- 1 / (exp(ZB_ZERO) + exp(-ZB_ZERO) + 2)
+  
   # hessian for B_ZERO
   for (i in seq(ncol(Z))) {
     for (j in seq(ncol(Z))) {
-      hess[i, j] <- sum(
-        ifelse(
-          Y == 0,
-          -exp(-ZB_ZERO) / (1 + exp(-ZB_ZERO))**2 * Z[, i] * Z[, j],
-          -exp(ZB_ZERO) / (1 + exp(ZB_ZERO))**2 * Z[, i] * Z[, j]
-        )
-      )
+      hess[i, j] <- sum(Z[,i] * Z[,j] * ifelse(Y != 0, tmp_b0, -tmp_b0))
     }
   }
   
+  # intermediate term for B_PLUS & B_PLUS w/ X
+  tmp_bx <- exp(ZBPX) - (exp(ZBPX) * ((exp(ZBPX) - 1) * exp(exp(ZBPX)) + 1)) / (exp(exp(ZBPX)) - 1)**2
+
   # hessian for B_PLUS
   for (i in seq(ncol(Z))) {
     for (j in seq(ncol(Z))) {
-      hess[ncol(Z) + i, ncol(Z) + j] <- sum(
-        ifelse(
-          Y != 0, 
-          Z[, i]*Z[, j] * (exp(ZB_PLUS) - (exp(ZBPX - exp(ZBPX)) * (1 - exp(ZBPX)) - exp(-exp(ZBPX))) / (1 - exp(-ZBPX))**2), 
-          0
-        )
-      )
+      hess[ncol(Z) + i, ncol(Z) + j] <- sum(ifelse(Y != 0,  Z[,i] * Z[,j] * tmp_bx, 0))
     }
   }
   
   # hessian for B_PLUS w/ X
   for (i in seq(ncol(Z))) {
-    hess[ncol(Z) + i, (2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))] <- -sum(
-      ifelse(
-        Y != 0, 
-        exp(ZBPX - exp(ZBPX)) / (1 - exp(-ZBPX))**2 * (exp(ZBPX - exp(ZBPX)) * (1 - exp(ZBPX)) - exp(-exp(ZBPX))) * Z[, i], 
-        0
-      )
-    )
+    hess[ncol(Z) + i, (2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))] <- ifelse(Y != 0, Z[,i] * tmp_bx, 0)
   }
   
   return(forceSymmetric(hess))
@@ -169,8 +154,7 @@ logLik <- function(df, par) {
   ZBPX <- ZB_PLUS + X
   
   out <- sum(
-    ifelse(
-      Y != 0, 
+    ifelse(Y != 0, 
       Y * ZBPX - log(1 - exp(-exp(ZBPX))) - exp(ZBPX) - log(1 + exp(-ZB_ZERO)), 
       -log(1 + exp(ZB_ZERO))
     )
@@ -238,7 +222,7 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
         print(paste("obj.curr = ", obj.curr))
       }
       
-      if (obj.curr < obj.prop) {
+      if (obj.curr < obj.prop && verbose) {
         print("REDUCED STEP SIZE REACHED.")
       }
       
@@ -307,6 +291,14 @@ G <- getLaplMtrx(df, 0.5)
 
 counter <- 0
 opt <- optimx(theta, margPost, df = df, X = X, G = G, method = "Nelder-Mead", itnmax = 1000, control = list(kkt = FALSE))
+
+X_hat <- margPost(df, X, c(opt$p1, opt$p2), G, return.X = TRUE)
+
+# Comparison with model w/o latent spatial effects
+fire.hurdle <- hurdle(count ~ x + y + elevation + max.temp, data = df, separate = FALSE)
+as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:10]
+
+
 
 ##########################
 
