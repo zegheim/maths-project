@@ -13,6 +13,7 @@ working.dir <- "~/Documents/diss/"
 ###########
 
 library(boot)
+library(INLA)
 library(MASS)
 library(Matrix)
 library(optimx)
@@ -63,22 +64,15 @@ gradLogLik <- function(df, par) {
   
   grad <- Matrix(0, nrow = length(par))
   
-  # grads for B_ZERO
   for (i in seq(ncol(Z))) {
+    # grads for B_ZERO
     grad[i] <- sum(
-      ifelse(
-        Y != 0, 
-        1 / (1 + exp(ZB_ZERO)) * Z[, i], 
-        - 1 / (1 + exp(-ZB_ZERO)) * Z[, i]
-      )
+      ifelse(Y != 0, 1 / (1 + exp(ZB_ZERO)) * Z[, i], - 1 / (1 + exp(-ZB_ZERO)) * Z[, i])
     )
-  }
-  
-  # grads for B_PLUS
-  for (i in seq(ncol(Z))) {
+    # grads for B_PLUS
     grad[i+ncol(Z)] <- sum(
       ifelse(Y != 0, Z[, i] * (Y - exp(ZB_PLUS) - exp(ZBPX - exp(ZBPX)) / (1 - exp(-exp(ZBPX)))), 0)
-      )
+    )
   }
   
   # grads for X
@@ -175,7 +169,11 @@ logLik <- function(df, par) {
   ZBPX <- ZB_PLUS + X
   
   out <- sum(
-    ifelse(Y != 0, Y * ZBPX - log(1 - exp(-exp(ZBPX))) - exp(ZB_PLUS) - log(1 + exp(-ZB_ZERO)), log(1 + exp(ZB_ZERO)))
+    ifelse(
+      Y != 0, 
+      Y * ZBPX - log(1 - exp(-exp(ZBPX))) - exp(ZBPX) - log(1 + exp(-ZB_ZERO)), 
+      -log(1 + exp(ZB_ZERO))
+    )
   )     
   
   return(out)
@@ -186,8 +184,10 @@ logPrior <- function(par, mu, Q) {
   parminmu <- Matrix(par - mu)
   L <- expand(Cholesky(Q, perm = TRUE))$L
   halflogdetQ <- sum(log(diag(L)))
-  
-  return(as.numeric(halflogdetQ - (k / 2) * log(2 * pi) - .5 * sum((parminmu) * (Q %*% parminmu))))
+  out <- as.numeric(
+    halflogdetQ - (k / 2) * log(2 * pi) - .5 * sum((parminmu) * (Q %*% parminmu))
+  )
+  return(out)
 }
 
 margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALSE) {
@@ -275,9 +275,10 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
   if (return.X) {
     return(X)
   } else {
-    # logPrior(X, X, Q) is the Laplace approximation 
-    # of the full conditional evaluated at X_hat(theta)
-    obj <- as.numeric(-(logPrior(X, mu, Q) + logLik(df, X) - logPrior(X, X, Q)))
+    # logPrior(X, X, Q) is the Laplace approximation of
+    # the full conditional evaluated at X_hat(theta). 
+    # We also assume that the log prior of theta is 0.
+    obj <- as.numeric(-(0 + logPrior(X, mu, Q) + logLik(df, X) - logPrior(X, X, Q)))
     counter <<- counter+1
     print(paste("counter = ", counter))
     return(obj)
@@ -305,7 +306,7 @@ theta <- c(0, 0)
 G <- getLaplMtrx(df, 0.5)
 
 counter <- 0
-opt <- optimx(theta, margPost, df = df, X = X, G = G, method = "Nelder-Mead", itnmax = 1000)
+opt <- optimx(theta, margPost, df = df, X = X, G = G, method = "Nelder-Mead", itnmax = 1000, control = list(kkt = FALSE))
 
 ##########################
 
@@ -320,7 +321,7 @@ par_init <- as.numeric(c(
   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
 ))
 
-opt <- optimx(par_init, logLik, Y = Y, Z = Z, method = "BFGS", itnmax = 10000, control=list(maximize = TRUE))
+opt_simple <- optimx(par_init, logLik, Y = Y, Z = Z, method = "BFGS", itnmax = 10000, control=list(maximize = TRUE))
 
 # Check with using library
 fire.hurdle <- hurdle(count ~ x + y + elevation + max.temp, data = df, separate = FALSE)
