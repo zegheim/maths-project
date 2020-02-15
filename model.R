@@ -24,7 +24,7 @@ library(tidyverse)
 # HELPER FUNCTIONS #
 ####################
 
-getLaplMtrxSpd <- function(df, res, verbose=FALSE) {
+getLaplMtrx <- function(df, res, verbose=FALSE) {
   rows <- nrow(df)
   
   if (verbose) {
@@ -42,33 +42,6 @@ getLaplMtrxSpd <- function(df, res, verbose=FALSE) {
       if (nghbr != i) {
         G[i, nghbr] <- -1
         G[i, i] <- G[i, i] + 1
-      }
-    }
-  }
-  
-  if (verbose) {
-    close(pb)
-  }
-  
-  return(G)
-}
-
-getLaplMtrx <- function(df, res, verbose=FALSE) {
-  rows <- nrow(df)
-  
-  if (verbose) {
-    pb <- txtProgressBar(0, rows, style = 3)
-  }
-  
-  G <- Matrix(0, nrow = rows, ncol = rows, sparse = TRUE)
-  for (i in seq(rows)) {
-    if (verbose) {
-      setTxtProgressBar(pb, i)
-    }
-    for (j in seq(rows)) {
-      if ((abs(df$x[i] - df$x[j]) <= res) && (abs(df$y[i] - df$y[j]) <= res) && (i != j)) {
-        G[i, i] <- G[i, i] + 1
-        G[i, j] <- -1
       }
     }
   }
@@ -208,7 +181,7 @@ logLik <- function(df, par) {
 logPrior <- function(par, mu, Q) {
   k <- length(par)
   parminmu <- Matrix(par - mu)
-  L <- expand(Cholesky(Q, perm = TRUE))$L
+  L <- Matrix::expand(Cholesky(Q, perm = TRUE))$L
   halflogdetQ <- sum(log(diag(L)))
   out <- as.numeric(
     halflogdetQ - (k / 2) * log(2 * pi) - .5 * sum((parminmu) * (Q %*% parminmu))
@@ -324,11 +297,11 @@ Z <- cbind(rep(1, length(Y)), df[-3])
 colnames(Z)[1] <- "intercept"
 
 X <- rep(0, 2 * ncol(df) + nrow(df))
-X[1:(2*ncol(df))] <- as.numeric(c(
-  glm.fit(Z, Y, family = poisson())$coefficients,
-  glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
-))
-theta <- c(0, 0)
+# X[1:(2*ncol(df))] <- as.numeric(c(
+#   glm.fit(Z, Y, family = poisson())$coefficients,
+#   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
+# ))
+theta <- c(0.1, 0.1)
 G <- getLaplMtrx(df, res, verbose = TRUE)
 
 counter <- 0
@@ -337,7 +310,7 @@ opt <- optimx(theta, margPost, df = df, X = X, G = G, method = "Nelder-Mead", it
 X_hat <- margPost(df, X, c(opt$p1, opt$p2), G, return.X = TRUE)
 
 # Comparison with model w/o latent spatial effects
-fire.hurdle <- hurdle(count ~ x + y + elevation + max.temp, data = df, separate = FALSE)
+fire.hurdle <- hurdle(count ~ x + y + elevation + avg.temp, data = df, separate = FALSE)
 as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:10]
 
 
