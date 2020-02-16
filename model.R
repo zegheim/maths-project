@@ -127,12 +127,12 @@ hessLogLik <- function(df, par) {
   # hessian for B_ZERO
   for (i in seq(ncol(Z))) {
     for (j in seq(ncol(Z))) {
-      hess[i, j] <- sum(Z[,i] * Z[,j] * ifelse(Y != 0, tmp_b0, -tmp_b0))
+      hess[i, j] <- sum(Z[,i] * Z[,j] * tmp_b0 * ((Y != 0) - (Y == 0)))
     }
   }
   
   # intermediate term for B_PLUS & B_PLUS w/ X
-  tmp_bx <- exp(ZBPX) - (exp(ZBPX) * ((exp(ZBPX) - 1) * exp(exp(ZBPX)) + 1)) / (exp(exp(ZBPX)) - 1)**2
+  tmp_bx <- -exp(ZBPX) - (exp(ZBPX) * ((exp(ZBPX) - 1) * exp(exp(ZBPX)) + 1)) / (exp(exp(ZBPX)) - 1)**2
 
   # hessian for B_PLUS
   for (i in seq(ncol(Z))) {
@@ -301,7 +301,7 @@ X <- rep(0, 2 * ncol(df) + nrow(df))
 #   glm.fit(Z, Y, family = poisson())$coefficients,
 #   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
 # ))
-theta <- c(0.1, 0.1)
+theta <- c(0.01, 0.01)
 G <- getLaplMtrx(df, res, verbose = TRUE)
 
 counter <- 0
