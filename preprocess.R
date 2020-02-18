@@ -2,13 +2,16 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
-cname <- "Indonesia"
-csv.name <- "~/Documents/diss/data/df_hires.csv"
+cname <- "Australia"
+csv.name <- "~/Documents/diss/data/df_aus_lowres.csv"
 data.dir <- "~/Documents/diss/data"
-fname.fire <- "/media/zegheim/Justin_SSD/nc_ina/gfas/cams_gfas_ga_1507.nc"
-fname.temp <- "/media/zegheim/Justin_SSD/nc_ina/tair/tair_2015_cropped.nc"
+fname.fire <- "/media/zegheim/Justin_SSD/nc_aus/gfas/cams_gfas_ga_1512.nc"
+fname.temp <- "/media/zegheim/Justin_SSD/nc_aus/tair/tair_2015_cropped.nc"
+month <- 12
 vname <- "frpfire"
 working.dir <- "~/Documents/diss/"
+is.lowres <- TRUE
+lowres.factor <- 5
 
 ### DO NOT EDIT BELOW THIS LINE ###
 
@@ -67,26 +70,32 @@ countMissing <- function(raster) {
 setwd(working.dir)
 
 # simplify the geometry of the polygon shapes
-cpoly <- getData("GADM", download = FALSE, path = data.dir, country = cname, level = 1)
+cpoly <- getData("GADM", path = data.dir, country = cname, level = 1)
 cpoly.simplified <- gSimplify(getSmallPolys(cpoly), tol = 0.01, topologyPreserve = TRUE)
 
 # get fire data
 c.var <- raster::brick(fname.fire, varname = vname)
-c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
+c.var.flat <- flattenRaster(c.var, cpoly.simplified, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
 
 # get elevation data
-elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
+elev <- get_elev_raster(cpoly.simplified, src = "aws", z = 6, clip = "locations")
 elev.cropped <- resample(crop(elev, c.var.flat), c.var.flat, method="bilinear")
 names(elev.cropped) <- "elevation"
 
 # get temperature data
-temp <- raster::brick(fname.temp)
-temp.1507 <- temp[[7]]
-temp.1507.resampled <- resample(temp.1507, c.var.flat)
-names(temp.1507.resampled) <- "avg.temp"
+temp <- raster::brick(fname.temp)[[month]]
+temp.resampled <- resample(temp, c.var.flat)
+names(temp.resampled) <- "avg.temp"
 
+# low-res or high-res?
+if (is.lowres) {
+  c.var.flat <- aggregate(c.var.flat, fact = lowres.factor, fun = sum)
+  elev.cropped <- aggregate(elev.cropped, fact = lowres.factor, fun = mean)
+  temp.resampled <- aggregate(temp.resampled, fact = lowres.factor, fun = mean)
+}
 # coerce to data.frame
-df <- as.data.frame(mask(stack(c.var.flat, elev.cropped, temp.1507.resampled), cpoly), xy = TRUE, na.rm = TRUE)
+data.raster <- mask(stack(c.var.flat, elev.cropped, temp.resampled), cpoly.simplified)
+df <- as.data.frame(data.raster, xy = TRUE, na.rm = TRUE)
 df$avg.temp <- df$avg.temp - 273.15
-
+df$elevation <- max(df$elevation, 0)
 write.csv(df, csv.name, row.names = FALSE)

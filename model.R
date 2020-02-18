@@ -2,8 +2,8 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
-cname <- "Indonesia"
-fname <- "~/Documents/diss/data/df_hires.csv"
+cname <- "Australia"
+fname <- "~/Documents/diss/data/df_aus_hires.csv"
 data.dir <- "~/Documents/diss/data"
 proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 res <- 0.1
@@ -16,6 +16,7 @@ working.dir <- "~/Documents/diss/"
 # IMPORTS #
 ###########
 
+library(extraDistr)
 library(INLA)
 library(MASS)
 library(Matrix)
@@ -229,8 +230,8 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
     X.prop <- X
     obj.prop <- obj.curr
     grad.fc <- gradLogLik(df, X) + gradLogPrior(X, mu, Q)
-    hess.fc <- hessLogLik(df, X) + hessLogPrior(Q) - Q
-    diff <- -Matrix::solve(hess.fc, grad.fc)
+    hess.fc <- hessLogLik(df, X) + hessLogPrior(Q)
+    diff <- -Matrix::solve(-hess.fc, grad.fc)
     X <- X.prop + alpha * diff
     plot(X, ylim = c(-3, 7))
     obj.curr <- -(logLik(df, X) + logPrior(X, mu, Q))
@@ -299,10 +300,10 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
   }
 }
 
-plotMapSimple <- function(raster, colours) {
+plotMapSimple <- function(raster, colours, bg.color = "skyblue") {
   # brks <- seq(0, length(at), length.out = length(at))
   # my.color.key <- list(at = brks, labels = list(at = brks, labels = at))
-  map.theme <- rasterTheme(region = colours, panel.background = list(col = "skyblue"))
+  map.theme <- rasterTheme(region = colours, panel.background = list(col = bg.color))
   levelplot(
     raster,
     par.settings = map.theme, 
@@ -332,10 +333,16 @@ df <- read.csv(fname)
 df.coords <- df[1:2]
 df.covars <- df[c(-1,-2)]
 
-X <- rep(0, 2 * ncol(df.covars) + nrow(df.covars))
-theta <- c(0, 0)
 G <- getLaplMtrx(df.coords, res, verbose = TRUE)
 
+Z <- cbind(
+  rep(1, length(df.covars)), 
+  as.matrix(subset(df.covars, select = -count))
+)
+
+X <- rep(0, 2 * ncol(df.covars) + nrow(df.covars))
+
+theta <- c(0, 0)
 counter <- 0
 opt <- optimx(
   theta,
@@ -343,6 +350,7 @@ opt <- optimx(
   df = df.covars, 
   X = X, 
   G = G,
+  verbose = TRUE,
   method = "Nelder-Mead", 
   itnmax = 1000, 
   control = list(kkt = FALSE)
@@ -353,8 +361,8 @@ X_hat <- XQ_hat$X_hat
 Q_hat <- XQ_hat$Q_hat
 
 # Comparison with model w/o latent spatial effects
-fire.hurdle <- hurdle(count ~ elevation + avg.temp, data = df.covars, separate = FALSE)
-as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:6]
+fire.hurdle <- hurdle(count ~ elevation + avg.temp, data = df.covars)
+as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:(2*ncol(df.covars))]
 
 ##### PLOTTING THE SPATIAL EFFECTS #####
 counts.raster <- rasterFromXYZ(df[-4:-5], crs = proj.str)
@@ -367,48 +375,88 @@ plotMap(
 )
 
 xyz <- df.coords
-xyz$z <- X_hat[7:length(X_hat)]
+xyz$z <- X_hat[(2*ncol(df.covars)+1):length(X_hat)]
 spatial.fx <- rasterFromXYZ(xyz, crs = proj.str)
 plotMapSimple(
   spatial.fx,
   c("#006400", brewer.pal(8, "Oranges"))
 )
 
+##### SIMULATION STUDY #####
+Z_sim <- cbind(
+  rep(1, length(Y)), 
+  as.matrix(subset(df.covars, select = -count))
+)
 
+theta_sim <- c(log(1), log(1.5))
+Q_sim <- getPrecMtrx(theta_sim, G)
+
+B_ZERO_sim <- fire.hurdle$coefficients$zero
+B_PLUS_sim <- fire.hurdle$coefficients$count
+U_sim <- inla.qsample(n = 1, Q_sim)
+
+Y_sim <- rbinom(nrow(Z_sim_scaled), 1, 1/(1 + exp(-Z_sim_scaled %*% B_ZERO_sim))) * rtpois(nrow(Z_sim_scaled), exp(Z_sim_scaled %*% B_PLUS_sim + U_sim), a = 0, b = Inf)
+count.sim <- df.coords
+count.sim$z <- exp(U_sim)
+plotMapSimple(
+  rasterFromXYZ(count.sim, crs = proj.str), 
+  brewer.pal(8, "Greens")
+)
+
+df.covars.sim <- df.covars
+df.covars.sim$count <- Y_sim
+X <- rep(0, 2 * ncol(df.covars.sim) + nrow(df.covars.sim))
+theta <- c(0, 0)
+counter <- 0
+opt_sim <- optimx(
+  theta,
+  margPost, 
+  df = df.covars.sim, 
+  X = X, 
+  G = G,
+  method = "Nelder-Mead", 
+  itnmax = 1000, 
+  control = list(kkt = FALSE)
+)
+
+theta_sim_hat <- c(opt_sim$p1, opt_sim$p2)
+XQ_sim_hat <- margPost(df.covars.sim, X, theta_sim_hat, G, return.X = TRUE, verbose = TRUE)
+X_sim_hat <- XQ_sim_hat$X_hat
+Q_sim_hat <- XQ_sim_hat$Q_hat
 
 ##### PAST WORK (IGNORE) #####
 
-Y <- df$count
-# Add intercept column
-Z <- cbind(rep(1, length(Y)), df[-3])
-colnames(Z)[1] <- "intercept"
-
-# Initialise parameters using the coefficients of a GLM fit
-par_init <- as.numeric(c(
-  glm.fit(Z, Y, family = poisson())$coefficients,
-  glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
-))
-
-opt_simple <- optimx(par_init, logLik, Y = Y, Z = Z, method = "BFGS", itnmax = 10000, control=list(maximize = TRUE))
-
-# Check with using library
-fire.hurdle <- hurdle(count ~ x + y + elevation + max.temp, data = df, separate = FALSE)
-
-# Compare final value
-opt$value; fire.hurdle$optim$value
-
-# Compare coefficients
-B_PLUS_hat <- as.numeric(tail(opt, 1)[1:10])[1:5]
-B_ZERO_hat <- as.numeric(tail(opt, 1)[1:10])[6:10]
-as.numeric(fire.hurdle$coefficients$count); B_PLUS_hat
-as.numeric(fire.hurdle$coefficients$zero); B_ZERO_hat
-
-# Calculate Hessian
-inf_matrix <- -1 * optimHess(par = as.numeric(opt[1:10]), fn = logLik, Y = Y, Z = Z, control=list(fnscale = -1))
-inf_matrix[1:5, 6:10] <- 0
-inf_matrix[6:10, 1:5] <- 0
-inv.inf_matrix <- solve(inf_matrix)
-
-# generating samples of MLE
-mles <- mvrnorm(n = 100, mu = as.numeric(tail(opt, 1)[1:10]), Sigma = inv.inf_matrix)
+# Y <- df$count
+# # Add intercept column
+# Z <- cbind(rep(1, length(Y)), df[-3])
+# colnames(Z)[1] <- "intercept"
+# 
+# # Initialise parameters using the coefficients of a GLM fit
+# par_init <- as.numeric(c(
+#   glm.fit(Z, Y, family = poisson())$coefficients,
+#   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
+# ))
+# 
+# opt_simple <- optimx(par_init, logLik, Y = Y, Z = Z, method = "BFGS", itnmax = 10000, control=list(maximize = TRUE))
+# 
+# # Check with using library
+# fire.hurdle <- hurdle(count ~ x + y + elevation + max.temp, data = df, separate = FALSE)
+# 
+# # Compare final value
+# opt$value; fire.hurdle$optim$value
+# 
+# # Compare coefficients
+# B_PLUS_hat <- as.numeric(tail(opt, 1)[1:10])[1:5]
+# B_ZERO_hat <- as.numeric(tail(opt, 1)[1:10])[6:10]
+# as.numeric(fire.hurdle$coefficients$count); B_PLUS_hat
+# as.numeric(fire.hurdle$coefficients$zero); B_ZERO_hat
+# 
+# # Calculate Hessian
+# inf_matrix <- -1 * optimHess(par = as.numeric(opt[1:10]), fn = logLik, Y = Y, Z = Z, control=list(fnscale = -1))
+# inf_matrix[1:5, 6:10] <- 0
+# inf_matrix[6:10, 1:5] <- 0
+# inv.inf_matrix <- solve(inf_matrix)
+# 
+# # generating samples of MLE
+# mles <- mvrnorm(n = 100, mu = as.numeric(tail(opt, 1)[1:10]), Sigma = inv.inf_matrix)
 
