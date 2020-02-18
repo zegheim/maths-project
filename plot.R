@@ -6,10 +6,8 @@ data.dir <- "~/Documents/diss/data"
 working.dir <- "~/Documents/diss/"
 
 cname <- "Australia"
-fname <- "/media/zegheim/Justin_SSD/nc_aus/cams_gfas_ga_0612.nc"
+fname <- "~/Documents/diss/data//cams_gfas_ga_1912.nc"
 vname <- "frpfire"
-
-plot.title <- "No. of wildfire occurrences in Dec 2006"
 
 ### DO NOT EDIT BELOW THIS LINE ###
 
@@ -55,7 +53,7 @@ getSmallPolys <- function(poly, minarea=0.01) {
 }
 
 # Plot flattened maps
-plotMap <- function(raster, title, lines) {
+plotMap <- function(raster, lines) {
   my.at <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
   my.brks <- seq(0, 9, length.out = 9)
   my.color.key <- list(at = my.brks, labels = list(at = my.brks, labels = my.at))
@@ -65,7 +63,6 @@ plotMap <- function(raster, title, lines) {
     par.settings = map.theme, 
     at = my.at,
     colorkey = my.color.key,
-    main = title,
     margin = FALSE,
   ) + lines
 }
@@ -80,4 +77,4 @@ cpoly <- getData("GADM", download = FALSE, path = data.dir, country = cname, lev
 cpoly.simplified <- gSimplify(getSmallPolys(cpoly, minarea=1.875e-2), tol = 1e-2, topologyPreserve = TRUE)
 c.var <- raster::brick(fname, varname = vname)
 c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
-plotMap(crop(mask(c.var.flat, cpoly.simplified), cpoly.simplified), plot.title, layer(sp.lines(cpoly.simplified)))
+plotMap(crop(mask(c.var.flat, cpoly.simplified), cpoly.simplified), latticeExtra::layer(sp.lines(cpoly.simplified)))

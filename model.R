@@ -2,7 +2,10 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
+cname <- "Indonesia"
 fname <- "~/Documents/diss/data/df_hires.csv"
+data.dir <- "~/Documents/diss/data"
+proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 res <- 0.1
 seed <- 17071996L
 working.dir <- "~/Documents/diss/"
@@ -17,14 +20,16 @@ library(INLA)
 library(MASS)
 library(Matrix)
 library(optimx)
+library(pals)
+library(profvis)
 library(pscl)
-library(tidyverse)
+library(raster)
+library(rasterVis)
+library(RColorBrewer)
+library(rgeos)
 
-####################
-# HELPER FUNCTIONS #
-####################
-
-getLaplMtrx <- function(df, res, verbose=FALSE) {
+##### HELPER FUNCTIONS #####
+getLaplMtrx <- function(df, res, verbose = FALSE) {
   rows <- nrow(df)
   
   if (verbose) {
@@ -85,10 +90,10 @@ gradLogLik <- function(df, par) {
     # grads for B_ZERO
     grad[i] <- sum(ifelse(Y != 0, 1 / (1 + exp(-ZB_ZERO)), -1 / (1 + exp(ZB_ZERO))) * Z[,i])
     # grads for B_PLUS
-    grad[i+ncol(Z)] <- sum(ifelse(Y != 0, tmp, 0) * Z[,i])
+    grad[i+ncol(Z)] <- sum((Y != 0) * tmp * Z[,i])
   }
   # grads for X
-  grad[(2*ncol(Z)+1):length(par)] <- ifelse(Y != 0, tmp, 0)
+  grad[(2*ncol(Z)+1):length(par)] <- (Y != 0) * tmp
   
   return(grad)
 }
@@ -113,7 +118,11 @@ hessLogLik <- function(df, par) {
   
   B_ZERO <- par[1:ncol(Z)]
   B_PLUS <- par[(ncol(Z)+1):(ncol(Z)*2)]
-  X <- par[(2*ncol(Z)+1):length(par)]
+  
+  # indexes for X
+  idxs_x <- (2*ncol(Z)+1):length(par)
+  
+  X <- par[idxs_x]
   
   ZB_ZERO <- Z %*% B_ZERO
   ZB_PLUS <- Z %*% B_PLUS
@@ -137,14 +146,17 @@ hessLogLik <- function(df, par) {
   # hessian for B_PLUS
   for (i in seq(ncol(Z))) {
     for (j in seq(ncol(Z))) {
-      hess[ncol(Z) + i, ncol(Z) + j] <- sum(ifelse(Y != 0,  Z[,i] * Z[,j] * tmp_bx, 0))
+      hess[ncol(Z) + i, ncol(Z) + j] <- sum((Y != 0) *  Z[,i] * Z[,j] * tmp_bx)
     }
   }
   
   # hessian for B_PLUS w/ X
   for (i in seq(ncol(Z))) {
-    hess[ncol(Z) + i, (2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))] <- ifelse(Y != 0, Z[,i] * tmp_bx, 0)
+    hess[ncol(Z) + i, idxs_x] <- (Y != 0) * Z[,i] * tmp_bx
   }
+  
+  # hessian for X (diagonal terms only)
+  hess[idxs_x, idxs_x] <- Diagonal(x = tmp_bx)
   
   return(forceSymmetric(hess))
 }
@@ -217,11 +229,12 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
     X.prop <- X
     obj.prop <- obj.curr
     grad.fc <- gradLogLik(df, X) + gradLogPrior(X, mu, Q)
-    hess.fc <- hessLogLik(df, X) + hessLogPrior(Q)
+    hess.fc <- hessLogLik(df, X) + hessLogPrior(Q) - Q
     diff <- -Matrix::solve(hess.fc, grad.fc)
     X <- X.prop + alpha * diff
+    plot(X, ylim = c(-3, 7))
     obj.curr <- -(logLik(df, X) + logPrior(X, mu, Q))
-    
+  
     if (verbose) {
       print(paste("obj.curr = ", obj.curr))
       print(paste("obj.curr > obj.prop = ", (obj.curr > obj.prop)))
@@ -256,8 +269,8 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
     tol.test <- sqrt(sum(grad.fc**2))
     
     if (verbose) {
-      print(paste("obj.curr = ", obj.curr, ", obj.prop = ", obj.prop))
-      print(paste("tol.test = ", round(tol.test, 3), ", scaled.acc = ", round(scaled.acc, 3)))
+      # print(paste("obj.curr = ", obj.curr, ", obj.prop = ", obj.prop))
+      # print(paste("tol.test = ", round(tol.test, 3), ", scaled.acc = ", round(scaled.acc, 3)))
     }
     
     nmv <- abs(sqrt(sum(X**2)) - sqrt(sum(X.prop**2)))
@@ -272,50 +285,98 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
   }
   
   if (return.X) {
-    return(X)
+    return(list(X_hat = X, Q_hat = -hess.fc))
   } else {
-    # logPrior(X, X, Q) is the Laplace approximation of
+    # halflogdetQ is the Laplace approximation of
     # the full conditional evaluated at X_hat(theta). 
     # We also assume that the log prior of theta is 0.
-    obj <- as.numeric(-(0 + logPrior(X, mu, Q) + logLik(df, X) - logPrior(X, X, Q)))
-    counter <<- counter+1
+    L <- Matrix::expand(Cholesky(-hess.fc, perm = TRUE))$L
+    halflogdetQ <- sum(log(diag(L)))
+    obj <- as.numeric(-(0 + logPrior(X, mu, Q) + logLik(df, X) - halflogdetQ))
+    counter <<- counter + 1
     print(paste("counter = ", counter))
     return(obj)
   }
 }
 
-########
-# MAIN #
-########
+plotMapSimple <- function(raster, colours) {
+  # brks <- seq(0, length(at), length.out = length(at))
+  # my.color.key <- list(at = brks, labels = list(at = brks, labels = at))
+  map.theme <- rasterTheme(region = colours, panel.background = list(col = "skyblue"))
+  levelplot(
+    raster,
+    par.settings = map.theme, 
+    margin = FALSE,
+  )
+}
+
+plotMap <- function(raster, lines, at, colours) {
+  brks <- seq(0, length(at), length.out = length(at))
+  my.color.key <- list(at = brks, labels = list(at = brks, labels = at))
+  map.theme <- rasterTheme(region = colours, panel.background = list(col = "skyblue"))
+  levelplot(
+    raster,
+    par.settings = map.theme,
+    at = at,
+    colorkey = my.color.key,
+    margin = FALSE,
+  ) + lines
+}
+
+##### MAIN #####
 
 setwd(working.dir)
 set.seed(seed)
 
 df <- read.csv(fname)
-Y <- df$count
-Z <- cbind(rep(1, length(Y)), df[-3])
-colnames(Z)[1] <- "intercept"
+df.coords <- df[1:2]
+df.covars <- df[c(-1,-2)]
 
-X <- rep(0, 2 * ncol(df) + nrow(df))
-# X[1:(2*ncol(df))] <- as.numeric(c(
-#   glm.fit(Z, Y, family = poisson())$coefficients,
-#   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
-# ))
-theta <- c(0.01, 0.01)
-G <- getLaplMtrx(df, res, verbose = TRUE)
+X <- rep(0, 2 * ncol(df.covars) + nrow(df.covars))
+theta <- c(0, 0)
+G <- getLaplMtrx(df.coords, res, verbose = TRUE)
 
 counter <- 0
-opt <- optimx(theta, margPost, df = df, X = X, G = G, method = "Nelder-Mead", itnmax = 1000, control = list(kkt = FALSE))
-
-X_hat <- margPost(df, X, c(opt$p1, opt$p2), G, return.X = TRUE)
+opt <- optimx(
+  theta,
+  margPost, 
+  df = df.covars, 
+  X = X, 
+  G = G,
+  method = "Nelder-Mead", 
+  itnmax = 1000, 
+  control = list(kkt = FALSE)
+)
+theta_hat <- c(opt$p1, opt$p2)
+XQ_hat <- margPost(df.covars, X, theta_hat, G, return.X = TRUE, verbose = TRUE)
+X_hat <- XQ_hat$X_hat
+Q_hat <- XQ_hat$Q_hat
 
 # Comparison with model w/o latent spatial effects
-fire.hurdle <- hurdle(count ~ x + y + elevation + avg.temp, data = df, separate = FALSE)
-as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:10]
+fire.hurdle <- hurdle(count ~ elevation + avg.temp, data = df.covars, separate = FALSE)
+as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:6]
+
+##### PLOTTING THE SPATIAL EFFECTS #####
+counts.raster <- rasterFromXYZ(df[-4:-5], crs = proj.str)
+cpoly <- getData("GADM", download = FALSE, path = data.dir, country = cname, level = 1)
+plotMap(
+  counts.raster, 
+  latticeExtra::layer(sp.lines(cpoly)),
+  c(0, 1, 2, 5, 10, 15, 20, 25, 31),
+  c("#006400", brewer.pal(8, "Oranges"))
+)
+
+xyz <- df.coords
+xyz$z <- X_hat[7:length(X_hat)]
+spatial.fx <- rasterFromXYZ(xyz, crs = proj.str)
+plotMapSimple(
+  spatial.fx,
+  c("#006400", brewer.pal(8, "Oranges"))
+)
 
 
 
-##########################
+##### PAST WORK (IGNORE) #####
 
 Y <- df$count
 # Add intercept column
