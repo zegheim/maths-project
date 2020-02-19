@@ -2,11 +2,11 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
-cname <- "Australia"
-fname <- "~/Documents/diss/data/df_aus_hires.csv"
+cname <- "Indonesia"
+fname <- "~/Documents/diss/data/df_hires.csv"
 data.dir <- "~/Documents/diss/data"
 proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
-res <- 0.1
+res <- 0.1 * 1.2
 seed <- 17071996L
 working.dir <- "~/Documents/diss/"
 
@@ -131,13 +131,10 @@ hessLogLik <- function(df, par) {
   
   hess <- Matrix(0, nrow = length(par), ncol = length(par))
   
-  # intermediate term for B_ZERO
-  tmp_b0 <- 1 / (exp(ZB_ZERO) + exp(-ZB_ZERO) + 2)
-  
   # hessian for B_ZERO
   for (i in seq(ncol(Z))) {
     for (j in seq(ncol(Z))) {
-      hess[i, j] <- sum(Z[,i] * Z[,j] * tmp_b0 * ((Y != 0) - (Y == 0)))
+      hess[i, j] <- -sum(Z[,i] * Z[,j] / (exp(ZB_ZERO) + exp(-ZB_ZERO) + 2))
     }
   }
   
@@ -230,8 +227,8 @@ margPost <- function(df, X, par, G, verbose = FALSE, acc = 1e-7, return.X = FALS
     X.prop <- X
     obj.prop <- obj.curr
     grad.fc <- gradLogLik(df, X) + gradLogPrior(X, mu, Q)
-    hess.fc <- hessLogLik(df, X) + hessLogPrior(Q)
-    diff <- -Matrix::solve(-hess.fc, grad.fc)
+    hess.fc <- hessLogLik(df, X) + hessLogPrior(Q) # hess.fc = hess.ll - Q so -hess.fc = -hess.ll + Q
+    diff <- -Matrix::solve(hess.fc, grad.fc)
     X <- X.prop + alpha * diff
     plot(X, ylim = c(-3, 7))
     obj.curr <- -(logLik(df, X) + logPrior(X, mu, Q))
@@ -336,13 +333,17 @@ df.covars <- df[c(-1,-2)]
 G <- getLaplMtrx(df.coords, res, verbose = TRUE)
 
 Z <- cbind(
-  rep(1, length(df.covars)), 
+  rep(1, nrow(df.covars)), 
   as.matrix(subset(df.covars, select = -count))
 )
 
 X <- rep(0, 2 * ncol(df.covars) + nrow(df.covars))
+X[1:(2*ncol(Z))] <- as.numeric(c(
+    glm.fit(Z, df.covars$count, family = poisson())$coefficients,
+    glm.fit(Z, factor(df.covars$count > 0), family = binomial())$coefficients
+))
 
-theta <- c(0, 0)
+theta <- c(1, -2)
 counter <- 0
 opt <- optimx(
   theta,
@@ -384,23 +385,30 @@ plotMapSimple(
 
 ##### SIMULATION STUDY #####
 Z_sim <- cbind(
-  rep(1, length(Y)), 
+  rep(1, length(df.covars$count)), 
   as.matrix(subset(df.covars, select = -count))
 )
 
-theta_sim <- c(log(1), log(1.5))
-Q_sim <- getPrecMtrx(theta_sim, G)
+theta_sim_plus <- c(log(1), log(2.5))
+theta_sim_zero <- c(log(1), log(0.1))
 
-B_ZERO_sim <- fire.hurdle$coefficients$zero
-B_PLUS_sim <- fire.hurdle$coefficients$count
-U_sim <- inla.qsample(n = 1, Q_sim)
+Q_sim_plus <- getPrecMtrx(theta_sim_plus, G)
+Q_sim_zero <- getPrecMtrx(theta_sim_zero, G)
 
-Y_sim <- rbinom(nrow(Z_sim_scaled), 1, 1/(1 + exp(-Z_sim_scaled %*% B_ZERO_sim))) * rtpois(nrow(Z_sim_scaled), exp(Z_sim_scaled %*% B_PLUS_sim + U_sim), a = 0, b = Inf)
+B_ZERO_sim <- c(0, 0, 0)
+B_PLUS_sim <- c(0, 0, 0)
+U_sim_plus <- inla.qsample(n = 1, Q_sim_plus)
+U_sim_zero <- inla.qsample(n = 1, Q_sim_zero)
+
+zeros <- rbinom(nrow(Z_sim), 1, 1/(1 + exp(-(Z_sim %*% B_ZERO_sim + U_sim_zero))))
+counts <- rtpois(nrow(Z_sim), exp(Z_sim %*% B_PLUS_sim + U_sim_plus), a = 0, b = Inf)
+Y_sim <- zeros * counts
+
 count.sim <- df.coords
-count.sim$z <- exp(U_sim)
+count.sim$z <- Y_sim
 plotMapSimple(
   rasterFromXYZ(count.sim, crs = proj.str), 
-  brewer.pal(8, "Greens")
+  c("#006400", brewer.pal(8, "Oranges"))
 )
 
 df.covars.sim <- df.covars

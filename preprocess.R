@@ -75,24 +75,26 @@ cpoly.simplified <- gSimplify(getSmallPolys(cpoly), tol = 0.01, topologyPreserve
 
 # get fire data
 c.var <- raster::brick(fname.fire, varname = vname)
+if (is.lowres) {
+  c.var <- aggregate(c.var, fact = lowres.factor, fun = mean)
+}
 c.var.flat <- flattenRaster(c.var, cpoly.simplified, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
 
 # get elevation data
-elev <- get_elev_raster(cpoly.simplified, src = "aws", z = 6, clip = "locations")
+elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
 elev.cropped <- resample(crop(elev, c.var.flat), c.var.flat, method="bilinear")
+if (is.lowres) {
+  elev.cropped <- aggregate(elev.cropped, fact = lowres.factor, fun = mean)
+}
 names(elev.cropped) <- "elevation"
 
 # get temperature data
 temp <- raster::brick(fname.temp)[[month]]
 temp.resampled <- resample(temp, c.var.flat)
+if (is.lowres) {
+  temp.resampled <- aggregate(temp.resampled, fact = lowres.factor, fun = mean)
 names(temp.resampled) <- "avg.temp"
 
-# low-res or high-res?
-if (is.lowres) {
-  c.var.flat <- aggregate(c.var.flat, fact = lowres.factor, fun = sum)
-  elev.cropped <- aggregate(elev.cropped, fact = lowres.factor, fun = mean)
-  temp.resampled <- aggregate(temp.resampled, fact = lowres.factor, fun = mean)
-}
 # coerce to data.frame
 data.raster <- mask(stack(c.var.flat, elev.cropped, temp.resampled), cpoly.simplified)
 df <- as.data.frame(data.raster, xy = TRUE, na.rm = TRUE)
