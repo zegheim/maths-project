@@ -2,12 +2,12 @@
 # CONFIGURATION VARIABLES #
 ###########################
 
-cname <- "Australia"
-csv.name <- "~/Documents/diss/data/df_aus_lowres.csv"
+cname <- "Indonesia"
+csv.name <- "~/Documents/diss/data/df_ina_lowres.csv"
 data.dir <- "~/Documents/diss/data"
-fname.fire <- "/media/zegheim/Justin_SSD/nc_aus/gfas/cams_gfas_ga_1512.nc"
-fname.temp <- "/media/zegheim/Justin_SSD/nc_aus/tair/tair_2015_cropped.nc"
-month <- 12
+fname.fire <- "/media/zegheim/Justin_SSD/nc_ina/gfas/cams_gfas_ga_1507.nc"
+fname.temp <- "/media/zegheim/Justin_SSD/nc_ina/tair/tair_2015_cropped.nc"
+month <- 7
 vname <- "frpfire"
 working.dir <- "~/Documents/diss/"
 is.lowres <- TRUE
@@ -58,11 +58,6 @@ getSmallPolys <- function(poly, minarea=0.01) {
   return(poly)
 }
 
-# Helper function to count how many NA values in a RasterLayer
-countMissing <- function(raster) {
-  sum(is.na(getValues(raster)))
-}
-
 ########
 # MAIN #
 ########
@@ -82,22 +77,19 @@ c.var.flat <- flattenRaster(c.var, cpoly.simplified, function(x, na.rm) {sum(x >
 
 # get elevation data
 elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
-elev.cropped <- resample(crop(elev, c.var.flat), c.var.flat, method="bilinear")
-if (is.lowres) {
-  elev.cropped <- aggregate(elev.cropped, fact = lowres.factor, fun = mean)
-}
+elev.cropped <- resample(elev, c.var.flat, method="bilinear")
 names(elev.cropped) <- "elevation"
 
 # get temperature data
 temp <- raster::brick(fname.temp)[[month]]
 temp.resampled <- resample(temp, c.var.flat)
-if (is.lowres) {
-  temp.resampled <- aggregate(temp.resampled, fact = lowres.factor, fun = mean)
 names(temp.resampled) <- "avg.temp"
 
 # coerce to data.frame
 data.raster <- mask(stack(c.var.flat, elev.cropped, temp.resampled), cpoly.simplified)
 df <- as.data.frame(data.raster, xy = TRUE, na.rm = TRUE)
 df$avg.temp <- df$avg.temp - 273.15
-df$elevation <- max(df$elevation, 0)
+df$elevation <- pmax(df$elevation, 0)
+df$x <- round(df$x, 2)
+df$y <- round(df$y, 2)
 write.csv(df, csv.name, row.names = FALSE)

@@ -89,7 +89,7 @@ gradLogLik <- function(df, par) {
   grad <- Matrix(0, nrow = length(par))
   for (i in seq(ncol(Z))) {
     # grads for B_ZERO
-    grad[i] <- sum(ifelse(Y != 0, 1 / (1 + exp(-ZB_ZERO)), -1 / (1 + exp(ZB_ZERO))) * Z[,i])
+    grad[i] <- sum(ifelse(Y != 0, 1 / (1 + exp(ZB_ZERO)), -1 / (1 + exp(-ZB_ZERO))) * Z[,i])
     # grads for B_PLUS
     grad[i+ncol(Z)] <- sum((Y != 0) * tmp * Z[,i])
   }
@@ -154,7 +154,7 @@ hessLogLik <- function(df, par) {
   }
   
   # hessian for X (diagonal terms only)
-  hess[idxs_x, idxs_x] <- Diagonal(x = tmp_bx)
+  hess[idxs_x, idxs_x] <- Diagonal(x = (Y != 0) * tmp_bx)
   
   return(forceSymmetric(hess))
 }
