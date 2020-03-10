@@ -1,20 +1,21 @@
 ##### CONFIGURATION VARIABLES #####
 
-cname <- "Indonesia"
-fname <- "~/Documents/diss/data/df_ina_lowres.csv"
-data.dir <- "~/Documents/diss/data"
-proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+fname <- "df_ina_lores.csv"
 res <- 0.5
+working.dir <- "~/Documents/diss"
+
+data.dir <- str_glue("{working.dir}/data")
+proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 seed <- 17071996L
-working.dir <- "~/Documents/diss/"
 
 ##### DO NOT EDIT BELOW THIS LINE ####
 
 ##### IMPORTS #####
 
-library(boot)
 library(extraDistr)
+library(gridExtra)
 library(INLA)
+library(latex2exp)
 library(MASS)
 library(Matrix)
 library(optimx)
@@ -28,40 +29,14 @@ library(rgeos)
 
 ##### HELPER FUNCTIONS #####
 
-getModHess <- function(hess, beta = 1e-3, factor = 2, verbose = FALSE) {
-  #'
-  #'    Adding a multiple of the identity; see Nocedal & Wright (2006) Chapter 3.4
-  #'
-  min.diag <- min(diag(hess))
-  if (min.diag > 0) {
-    # Nothing to do here, hessian is positive definite already.
-    return(hess)
-  }
-  
-  tau <- -min.diag + beta
-  id <- Diagonal(nrow(hess), 1)
-  is.pos.def <- FALSE
-  while (!is.pos.def) {
-    is.pos.def <- tryCatch(
-      {
-        Matrix::Cholesky(hess + tau * id)
-        # Cholesky factorisation succeeded; exit loop
-        TRUE
-      },
-      error = function(cond) {
-        if (verbose) {
-          message(cond)
-        }
-        # Cholesky factorisation failed; go to the next iteration
-        return(FALSE)
-      },
-      finally = {
-        tau <- max(factor * tau, beta)
-      }
-    )
-  }
-  
-  return(hess + tau * id)
+getConfInt <- function(result, alpha = 0.05) {
+  Sigma_hat <- Matrix::solve(result$Q_hat, Matrix::Diagonal(nrow(result$Q_hat)))
+  conf.int <- data.frame(
+    lwr = as.numeric(result$X_hat) + qnorm(alpha/2) * sqrt(diag(Sigma_hat)),
+    upr = as.numeric(result$X_hat) + qnorm(1 - alpha/2) * sqrt(diag(Sigma_hat))
+  )
+  conf.int$significant <- !(conf.int$lwr <= 0 & conf.int$upr >= 0)
+  return(conf.int)
 }
 
 getLaplMtrx <- function(coords, res, verbose = FALSE) {
@@ -77,7 +52,8 @@ getLaplMtrx <- function(coords, res, verbose = FALSE) {
       setTxtProgressBar(pb, i)
     }
     
-    nghbrs <- which(abs(coords$x - coords$x[i]) + abs(coords$y - coords$y[i]) == res)
+    nghbrs <- which(
+      round(abs(coords$x - coords$x[i]) + abs(coords$y - coords$y[i]), digits = 2) == res)
     if (length(nghbrs) > 0) {
       G[i, nghbrs] <- -1
       G[i, i] <- length(nghbrs) 
@@ -243,10 +219,11 @@ margPost <- function(Y, Z, X, par, G, mu.theta = FALSE, Q.theta = FALSE, verbose
     neg.hess.fc <- -hessLogLik(Y, Z, X) - hessLogPrior(Q)
     diff <- Matrix::solve(neg.hess.fc, grad.fc)
     X <- X.prop + alpha * diff
-    plot(X, ylim = c(-3, 3))
+    
     obj.curr <- -(logLik(Y, Z, X) + logPrior(X, mu, Q))
   
     if (verbose) {
+      plot(X, ylim = c(-3, 3))
       print(paste("obj.curr = ", obj.curr))
       print(paste("obj.curr > obj.prop = ", (obj.curr > obj.prop)))
     }
@@ -305,6 +282,7 @@ margPost <- function(Y, Z, X, par, G, mu.theta = FALSE, Q.theta = FALSE, verbose
       obj <- as.numeric(
         -(0 + logPrior(X, mu, Q) + logLik(Y, Z, X) - logPrior(X, X, neg.hess.fc))
       )
+    # Here we assume that the theta is a priori normally distributed with params (mu.theta, Q.theta^-1).
     } else {
       obj <- as.numeric(
         -(logPrior(par, mu.theta, Q.theta) + logPrior(X, mu, Q) + logLik(Y, Z, X) - logPrior(X, X, neg.hess.fc))
@@ -317,11 +295,22 @@ margPost <- function(Y, Z, X, par, G, mu.theta = FALSE, Q.theta = FALSE, verbose
   }
 }
 
-plotMap <- function(raster, colours, labels = NULL, bg.colour = "skyblue") {
+plotMap <- function(raster, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0) {
   map.theme <- rasterTheme(region = colours, panel.background = list(col = bg.colour))
+  map.theme$layout.heights[
+    c(
+      'bottom.padding', 
+      'top.padding', 
+      'key.sub.padding',
+      'axis.xlab.padding',
+      'key.axis.padding',
+      'main.key.padding'
+    )
+  ] <- padding
+  
   if (!is.null(labels)) {
     brks <- seq(0, length(labels), length.out = length(labels))
-    levelplot(
+    l <- levelplot(
       raster,
       par.settings = map.theme,
       at = labels,
@@ -329,182 +318,145 @@ plotMap <- function(raster, colours, labels = NULL, bg.colour = "skyblue") {
       margin = FALSE,
     )
   } else {
-    levelplot(
+    l <- levelplot(
       raster,
-      par.settings = map.theme, 
+      par.settings = map.theme,
       margin = FALSE
     )
   }
+  l$aspect.fill <- TRUE
+  l$xlab <- NULL
+  l$ylab <- NULL
+  l$main <- plot.title
+  return(l)
 }
 
-plotMapFromDataFrame <- function(coords, data, proj.str, colours, labels = NULL, bg.colour = "skyblue") {
+plotMapFromDataFrame <- function(coords, data, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0.5) {
   xyz <- coords
   xyz$z <- data
   xyz.raster <- rasterFromXYZ(xyz, crs = proj.str)
-  plotMap(xyz.raster, colours, labels = labels, bg.colour = bg.colour)
+  plotMap(xyz.raster, colours, plot.title, labels = labels, bg.colour = bg.colour, padding = padding)
+}
+
+plotPanels <- function(coords, result, Y, Z) {
+  covar.names <- Z@Dimnames[[2]][2:(ncol(Z) - 1)]
+  B_ZERO_hat <- result$X_hat[1:ncol(Z)]
+  B_PLUS_hat <- result$X_hat[(ncol(Z)+1):(2*ncol(Z))]
+  U_ZERO_hat <- result$X_hat[(2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))]
+  U_PLUS_hat <- result$X_hat[(2*ncol(Z)+nrow(Z)+1):length(result$X_hat)]
+  ZBU_ZERO_hat <- Z %*% B_ZERO_hat + U_ZERO_hat
+  ZBU_PLUS_hat <- Z %*% B_PLUS_hat + U_PLUS_hat
+  PR_ZERO_hat <- 1 / (1 + exp(ZBU_ZERO_hat))
+  RT_PLUS_hat <- exp(ZBU_PLUS_hat)
+  E_Y_hat <- (1 -  PR_ZERO_hat) * RT_PLUS_hat / (1 - exp(-RT_PLUS_hat))
+  
+  colours <- rev(brewer.pal(9, "RdYlGn"))
+  labels <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
+  
+  plots <- list()
+  
+  # actual Y values
+  plot.title <- TeX("Actual counts")
+  plots[[1]] <- plotMapFromDataFrame(coords, Y, colours, plot.title, labels = labels)
+  # E(Y_i)
+  plot.title <- TeX("Expected counts")
+  plots[[2]] <- plotMapFromDataFrame(df.coords, E_Y_hat, colours, plot.title, labels = labels)
+  # U_ZERO_HAT
+  plot.title <- TeX("Latent spatial effects $U_0$")
+  plots[[3]] <- plotMapFromDataFrame(coords, U_ZERO_hat, colours, plot.title)
+  # U_PLUS_HAT
+  plot.title <- TeX("Latent spatial effects $U_+$")
+  plots[[4]] <- plotMapFromDataFrame(coords, U_PLUS_hat, colours, plot.title)
+  # P(Y_i > 0)
+  plot.title <- TeX("$\\pi(X_i^T\\beta_0 + U_0)")
+  plots[[5]] <- plotMapFromDataFrame(coords, 1 - PR_ZERO_hat, colours, plot.title)
+  # Rate parameter for Y_i > 0
+  plot.title <- TeX("$\\lambda(X_i^T\\beta_+ + U_+)")
+  plots[[6]] <- plotMapFromDataFrame(coords, RT_PLUS_hat, colours, plot.title)
+  
+  for (name in covar.names) {
+    plot.title <- TeX(name)
+    plots[[(length(plots)+1)]] <- plotMapFromDataFrame(coords, Z[, name], colours, plot.title)
+  }
+  
+  do.call("grid.arrange", c(plots, list(left = "Latitude", bottom = "Longitude")))
+}
+
+runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 1e-4, itnmax = 1000) {
+  opt <- optimx(
+    theta_init,
+    margPost, 
+    Y = Y,
+    Z = Z, 
+    X = X_init, 
+    G = G,
+    acc = acc,
+    method = "Nelder-Mead",
+    itnmax = itnmax, 
+    control = list(kkt = FALSE, reltol = reltol)
+  )
+  theta_hat <- c(opt$p1, opt$p2, opt$p3, opt$p4)
+  XQ_hat <- margPost(Y, Z, X_init, theta_hat, G, acc = acc, return.X = TRUE, verbose = TRUE)
+  X_hat <- XQ_hat$X_hat
+  Q_hat <- XQ_hat$Q_hat
+  return(list(opt = opt, theta_hat = theta_hat, X_hat = X_hat, Q_hat = Q_hat))
 }
 
 ##### MAIN #####
 
 setwd(working.dir)
 
-df <- read.csv(fname)
+df <- read.csv(str_glue("{data.dir}/csv/{fname}"))
 df.coords <- df[1:2]
 df.covars <- df[c(-1,-2)]
+df.covars$range.humidity <- df.covars$temp.range * df.covars$rel.humidity
+df.covars$temp.humidity <- df.covars$avg.temp * df.covars$rel.humidity
 
 G <- getLaplMtrx(df.coords, res, verbose = TRUE)
-
 Y <- Matrix(df.covars$count)
-Z <- Matrix(
-  cbind(rep(1, length(Y)), as.matrix(subset(df.covars, select = -count)))
+Z.dtr <- Matrix(
+  cbind(rep(1, length(Y)), as.matrix(subset(df.covars, select = -c(count, avg.temp, precipitation, temp.humidity))))
+)
+Z.tmp <- Matrix(
+  cbind(rep(1, length(Y)), as.matrix(subset(df.covars, select = -c(count, temp.range, precipitation, range.humidity))))
 )
 
 # Initial parameters
 theta <- c(0, 0, 0, 0)
-
-X <- rep(0, 2 * (ncol(Z) + nrow(Z)))
-X[1:(2*ncol(Z))] <- as.numeric(c(
-    glm.fit(Z, df.covars$count, family = poisson())$coefficients,
-    glm.fit(Z, factor(df.covars$count > 0), family = binomial())$coefficients
-))
+X <- rep(0, 2 * (ncol(Z.dtr) + nrow(Z.dtr)))
 
 counter <- 0
 set.seed(seed)
-opt <- optimx(
-  theta,
-  margPost, 
-  Y = Y,
-  Z = Z, 
-  X = X, 
-  G = G,
-  method = "Nelder-Mead",
-  itnmax = 20, 
-  control = list(kkt = FALSE)
-)
+result.dtr <- runOptimProcedure(theta, X, Y, Z.dtr, G)
 
-theta_hat <- c(opt$p1, opt$p2, opt$p3, opt$p4)
-XQ_hat <- margPost(Y, Z, X, theta_hat, G, return.X = TRUE, verbose = TRUE)
-X_hat <- XQ_hat$X_hat
-Q_hat <- XQ_hat$Q_hat
+counter <- 0
+set.seed(seed)
+result.tmp <- runOptimProcedure(theta, X, Y, Z.tmp, G)
 
-# Comparison with model w/o latent spatial effects
-fire.hurdle <- hurdle(count ~ elevation + avg.temp, data = df.covars)
-as.numeric(c(fire.hurdle$coefficients$zero, fire.hurdle$coefficients$count)); X_hat[1:(2*ncol(df.covars))]
+# Should we use tmp or dtr?
+log.lik.dtr <- -margPost(Y, Z.dtr, X, result.dtr$theta_hat, G, acc = 1e-4, verbose = TRUE) # 2492.772
+log.lik.tmp <- -margPost(Y, Z.tmp, X, result.tmp$theta_hat, G, acc = 1e-4, verbose = TRUE) # 2493.009
+
+# Confidence intervals
+conf.int.dtr <- getConfInt(result.dtr)
+conf.int.tmp <- getConfInt(result.tmp)
 
 ##### PLOTTING THE SPATIAL EFFECTS #####
 
-# actual Y values
-colours <- c("#006400", brewer.pal(8, "Oranges"))
-labels <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
-plotMapFromDataFrame(df.coords, df$count, proj.str, colours, labels = labels)
+plotPanels(df.coords, result.dtr, Y, Z.dtr)
 
-# U_ZERO_HAT
-U_ZERO_hat <- X_hat[(2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))]
-colours <- rev(brewer.pal(9, "RdYlGn"))
-plotMapFromDataFrame(df.coords, U_ZERO_hat, proj.str, colours)
-
-# U_PLUS_HAT
-U_PLUS_hat <-  X_hat[(2*ncol(Z)+nrow(Z)+1):length(X_hat)]
-colours <- rev(brewer.pal(9, "RdYlGn"))
-plotMapFromDataFrame(df.coords, U_PLUS_hat, proj.str, colours)
-
-# P(Y_i = 0)
-B_ZERO_hat <- X_hat[1:ncol(Z)]
-ZBU_ZERO_hat <- Z %*% B_ZERO_hat + U_ZERO_hat
-PR_ZERO_hat <- 1 - 1 / (1 + exp(-ZBU_ZERO_hat))
-colours <- rev(brewer.pal(9, "RdYlGn"))
-plotMapFromDataFrame(df.coords, PR_ZERO_hat, proj.str, colours)
-
-# Rate parameter for Y_i > 0
-B_PLUS_hat <- X_hat[(ncol(Z)+1):(2*ncol(Z))]
-ZBU_PLUS_hat <- Z %*% B_PLUS_hat + U_PLUS_hat
-RT_PLUS_hat <- exp(ZBU_PLUS_hat)
-colours <- rev(brewer.pal(9, "RdYlGn"))
-plotMapFromDataFrame(df.coords, RT_PLUS_hat, proj.str, colours)
-
-##### SIMULATION STUDY #####
-theta_sim <- c(log(1), log(0.1), log(1), log(2.5))
-Q_ZERO_sim <- getPrecMtrx(theta_sim[1:2], G)
-Q_PLUS_sim <- getPrecMtrx(theta_sim[3:4], G)
-U_ZERO_sim <- inla.qsample(n = 1, Q_ZERO_sim)
-U_PLUS_sim <- inla.qsample(n = 1, Q_PLUS_sim)
-B_ZERO_sim <- c(0, 0, 0)
-B_PLUS_sim <- c(0, 0, 0)
-
-zeros <- rbinom(nrow(Z), 1, as.numeric(1/(1 + exp(-(Z %*% B_ZERO_sim + U_ZERO_sim)))))
-counts <- rtpois(nrow(Z), as.numeric(exp(Z %*% B_PLUS_sim + U_PLUS_sim)), a = 0, b = Inf)
-Y_sim <- zeros * counts
-
-theta_sim_init <- rep(01, 4)
-X_sim_init <- rep(0, 2 * (ncol(Z) + nrow(Z)))
-counter <- 0
-opt_sim <- optimx(
-  theta_sim_init,
-  margPost, 
-  Y = Y_sim,
-  Z = Z,
-  X = X_sim_init, 
-  G = G,
-  mu.theta = theta_sim,
-  Q.theta = Diagonal(length(theta_sim), 10), # MVN(theta_sim, 0.1)
-  method = "Nelder-Mead", 
-  itnmax = 1000, 
-  control = list(kkt = FALSE)
-)
-theta_sim_hat <- c(opt_sim$p1, opt_sim$p2, opt_sim$p3, opt_sim$p4)
-
-counter <- 0
-opt_sim_var_1 <- optimx(
-  theta_sim_init,
-  margPost, 
-  Y = Y_sim,
-  Z = Z,
-  X = X_sim_init, 
-  G = G,
-  mu.theta = theta_sim,
-  Q.theta = Diagonal(length(theta_sim), 1), # MVN(theta_sim, 1)
-  method = "Nelder-Mead", 
-  itnmax = 1000, 
-  control = list(kkt = FALSE)
+plot.U_ZERO_SIG.dtr <- plotMapFromDataFrame(
+  df.coords, 
+  conf.int.dtr$significant[(2*ncol(Z.tmp)+1):(2*ncol(Z.tmp)+nrow(Z.tmp))], 
+  c("#1A9850", "#D73027"),
+  TeX("U_0 significantly different from 0? (dtr)"),
+  labels = c(FALSE, 0.5, TRUE)
 )
 
-XQ_sim_hat <- margPost(Y_sim, Z, X_sim_init, theta_sim_hat, G, return.X = TRUE, verbose = TRUE)
-X_sim_hat <- XQ_sim_hat$X_hat
-Q_sim_hat <- XQ_sim_hat$Q_hat
-
-##### PAST WORK (IGNORE) #####
-
-# Y <- df$count
-# # Add intercept column
-# Z <- cbind(rep(1, length(Y)), df[-3])
-# colnames(Z)[1] <- "intercept"
-# 
-# # Initialise parameters using the coefficients of a GLM fit
-# par_init <- as.numeric(c(
-#   glm.fit(Z, Y, family = poisson())$coefficients,
-#   glm.fit(Z, factor(Y > 0), family = binomial())$coefficients
-# ))
-# 
-# opt_simple <- optimx(par_init, logLik, Y = Y, Z = Z, method = "BFGS", itnmax = 10000, control=list(maximize = TRUE))
-# 
-# # Check with using library
-# fire.hurdle <- hurdle(count ~ x + y + elevation + max.temp, data = df, separate = FALSE)
-# 
-# # Compare final value
-# opt$value; fire.hurdle$optim$value
-# 
-# # Compare coefficients
-# B_PLUS_hat <- as.numeric(tail(opt, 1)[1:10])[1:5]
-# B_ZERO_hat <- as.numeric(tail(opt, 1)[1:10])[6:10]
-# as.numeric(fire.hurdle$coefficients$count); B_PLUS_hat
-# as.numeric(fire.hurdle$coefficients$zero); B_ZERO_hat
-# 
-# # Calculate Hessian
-# inf_matrix <- -1 * optimHess(par = as.numeric(opt[1:10]), fn = logLik, Y = Y, Z = Z, control=list(fnscale = -1))
-# inf_matrix[1:5, 6:10] <- 0
-# inf_matrix[6:10, 1:5] <- 0
-# inv.inf_matrix <- solve(inf_matrix)
-# 
-# # generating samples of MLE
-# mles <- mvrnorm(n = 100, mu = as.numeric(tail(opt, 1)[1:10]), Sigma = inv.inf_matrix)
-
+plot.U_PLUS_SIG.dtr <- plotMapFromDataFrame(
+  df.coords, 
+  conf.int.dtr$significant[(2*ncol(Z.tmp)+nrow(Z.tmp)+1):length(result.dtr$X_hat)], 
+  c("#1A9850", "#D73027"),
+  TeX("U_+ significantly different from 0? (dtr)"),
+  labels = c(FALSE, 0.5, TRUE)
+)
