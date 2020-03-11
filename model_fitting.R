@@ -1,6 +1,19 @@
-##### CONFIGURATION VARIABLES #####
+# IMPORTS -----------------------------------------------------------------
 
-fname <- "df_ina_lores.csv"
+library(extraDistr)
+library(MASS)
+library(Matrix)
+library(optimx)
+library(pals)
+library(profvis)
+library(pscl)
+library(rgeos)
+library(stringr)
+
+# CONFIGURATION VARIABLES -------------------------------------------------
+
+csv.name <- "df_ina_lores.csv"
+RData.name <- str_glue("result.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
 res <- 0.5
 working.dir <- "~/Documents/diss"
 
@@ -8,36 +21,9 @@ data.dir <- str_glue("{working.dir}/data")
 proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 seed <- 17071996L
 
-##### DO NOT EDIT BELOW THIS LINE ####
+# DO NOT EDIT BELOW THIS LINE ---------------------------------------------
 
-##### IMPORTS #####
-
-library(extraDistr)
-library(gridExtra)
-library(INLA)
-library(latex2exp)
-library(MASS)
-library(Matrix)
-library(optimx)
-library(pals)
-library(profvis)
-library(pscl)
-library(raster)
-library(rasterVis)
-library(RColorBrewer)
-library(rgeos)
-
-##### HELPER FUNCTIONS #####
-
-getConfInt <- function(result, alpha = 0.05) {
-  Sigma_hat <- Matrix::solve(result$Q_hat, Matrix::Diagonal(nrow(result$Q_hat)))
-  conf.int <- data.frame(
-    lwr = as.numeric(result$X_hat) + qnorm(alpha/2) * sqrt(diag(Sigma_hat)),
-    upr = as.numeric(result$X_hat) + qnorm(1 - alpha/2) * sqrt(diag(Sigma_hat))
-  )
-  conf.int$significant <- !(conf.int$lwr <= 0 & conf.int$upr >= 0)
-  return(conf.int)
-}
+# HELPER FUNCTIONS --------------------------------------------------------
 
 getLaplMtrx <- function(coords, res, verbose = FALSE) {
   rows <- nrow(coords)
@@ -295,93 +281,6 @@ margPost <- function(Y, Z, X, par, G, mu.theta = FALSE, Q.theta = FALSE, verbose
   }
 }
 
-plotMap <- function(raster, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0) {
-  map.theme <- rasterTheme(region = colours, panel.background = list(col = bg.colour))
-  map.theme$layout.heights[
-    c(
-      'bottom.padding', 
-      'top.padding', 
-      'key.sub.padding',
-      'axis.xlab.padding',
-      'key.axis.padding',
-      'main.key.padding'
-    )
-  ] <- padding
-  
-  if (!is.null(labels)) {
-    brks <- seq(0, length(labels), length.out = length(labels))
-    l <- levelplot(
-      raster,
-      par.settings = map.theme,
-      at = labels,
-      colorkey = list(at = brks, labels = list(at = brks, labels = labels)),
-      margin = FALSE,
-    )
-  } else {
-    l <- levelplot(
-      raster,
-      par.settings = map.theme,
-      margin = FALSE
-    )
-  }
-  l$aspect.fill <- TRUE
-  l$xlab <- NULL
-  l$ylab <- NULL
-  l$main <- plot.title
-  return(l)
-}
-
-plotMapFromDataFrame <- function(coords, data, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0.5) {
-  xyz <- coords
-  xyz$z <- data
-  xyz.raster <- rasterFromXYZ(xyz, crs = proj.str)
-  plotMap(xyz.raster, colours, plot.title, labels = labels, bg.colour = bg.colour, padding = padding)
-}
-
-plotPanels <- function(coords, result, Y, Z) {
-  covar.names <- Z@Dimnames[[2]][2:(ncol(Z) - 1)]
-  B_ZERO_hat <- result$X_hat[1:ncol(Z)]
-  B_PLUS_hat <- result$X_hat[(ncol(Z)+1):(2*ncol(Z))]
-  U_ZERO_hat <- result$X_hat[(2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))]
-  U_PLUS_hat <- result$X_hat[(2*ncol(Z)+nrow(Z)+1):length(result$X_hat)]
-  ZBU_ZERO_hat <- Z %*% B_ZERO_hat + U_ZERO_hat
-  ZBU_PLUS_hat <- Z %*% B_PLUS_hat + U_PLUS_hat
-  PR_ZERO_hat <- 1 / (1 + exp(ZBU_ZERO_hat))
-  RT_PLUS_hat <- exp(ZBU_PLUS_hat)
-  E_Y_hat <- (1 -  PR_ZERO_hat) * RT_PLUS_hat / (1 - exp(-RT_PLUS_hat))
-  
-  colours <- rev(brewer.pal(9, "RdYlGn"))
-  labels <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
-  
-  plots <- list()
-  
-  # actual Y values
-  plot.title <- TeX("Actual counts")
-  plots[[1]] <- plotMapFromDataFrame(coords, Y, colours, plot.title, labels = labels)
-  # E(Y_i)
-  plot.title <- TeX("Expected counts")
-  plots[[2]] <- plotMapFromDataFrame(df.coords, E_Y_hat, colours, plot.title, labels = labels)
-  # U_ZERO_HAT
-  plot.title <- TeX("Latent spatial effects $U_0$")
-  plots[[3]] <- plotMapFromDataFrame(coords, U_ZERO_hat, colours, plot.title)
-  # U_PLUS_HAT
-  plot.title <- TeX("Latent spatial effects $U_+$")
-  plots[[4]] <- plotMapFromDataFrame(coords, U_PLUS_hat, colours, plot.title)
-  # P(Y_i > 0)
-  plot.title <- TeX("$\\pi(X_i^T\\beta_0 + U_0)")
-  plots[[5]] <- plotMapFromDataFrame(coords, 1 - PR_ZERO_hat, colours, plot.title)
-  # Rate parameter for Y_i > 0
-  plot.title <- TeX("$\\lambda(X_i^T\\beta_+ + U_+)")
-  plots[[6]] <- plotMapFromDataFrame(coords, RT_PLUS_hat, colours, plot.title)
-  
-  for (name in covar.names) {
-    plot.title <- TeX(name)
-    plots[[(length(plots)+1)]] <- plotMapFromDataFrame(coords, Z[, name], colours, plot.title)
-  }
-  
-  do.call("grid.arrange", c(plots, list(left = "Latitude", bottom = "Longitude")))
-}
-
 runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 1e-4, itnmax = 1000) {
   opt <- optimx(
     theta_init,
@@ -402,61 +301,29 @@ runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 
   return(list(opt = opt, theta_hat = theta_hat, X_hat = X_hat, Q_hat = Q_hat))
 }
 
-##### MAIN #####
+# MAIN --------------------------------------------------------------------
 
 setwd(working.dir)
 
-df <- read.csv(str_glue("{data.dir}/csv/{fname}"))
-df.coords <- df[1:2]
-df.covars <- df[c(-1,-2)]
-df.covars$range.humidity <- df.covars$temp.range * df.covars$rel.humidity
-df.covars$temp.humidity <- df.covars$avg.temp * df.covars$rel.humidity
+df <- read.csv(str_glue("{data.dir}/csv/{csv.name}"))
+coords <- df[c("x", "y")]
+covars <- df[c("count", "avg.temp", "rel.humidity")]
+covars$temp.humidity <- covars$avg.temp * covars$rel.humidity
 
-G <- getLaplMtrx(df.coords, res, verbose = TRUE)
-Y <- Matrix(df.covars$count)
-Z.dtr <- Matrix(
-  cbind(rep(1, length(Y)), as.matrix(subset(df.covars, select = -c(count, avg.temp, precipitation, temp.humidity))))
-)
-Z.tmp <- Matrix(
-  cbind(rep(1, length(Y)), as.matrix(subset(df.covars, select = -c(count, temp.range, precipitation, range.humidity))))
-)
+Y <- Matrix(covars$count)
+Z <- Matrix(cbind(rep(1, length(Y)), as.matrix(subset(covars, select = -count))))
+G <- getLaplMtrx(coords, res, verbose = TRUE)
 
 # Initial parameters
 theta <- c(0, 0, 0, 0)
-X <- rep(0, 2 * (ncol(Z.dtr) + nrow(Z.dtr)))
+X <- rep(0, 2 * (ncol(Z) + nrow(Z)))
 
+# Run optimisation procedure
 counter <- 0
 set.seed(seed)
-result.dtr <- runOptimProcedure(theta, X, Y, Z.dtr, G)
+result <- runOptimProcedure(theta, X, Y, Z, G)
 
-counter <- 0
-set.seed(seed)
-result.tmp <- runOptimProcedure(theta, X, Y, Z.tmp, G)
+log.marg.post <- -margPost(Y, Z, X, result$theta_hat, G) 
 
-# Should we use tmp or dtr?
-log.lik.dtr <- -margPost(Y, Z.dtr, X, result.dtr$theta_hat, G, acc = 1e-4, verbose = TRUE) # 2492.772
-log.lik.tmp <- -margPost(Y, Z.tmp, X, result.tmp$theta_hat, G, acc = 1e-4, verbose = TRUE) # 2493.009
-
-# Confidence intervals
-conf.int.dtr <- getConfInt(result.dtr)
-conf.int.tmp <- getConfInt(result.tmp)
-
-##### PLOTTING THE SPATIAL EFFECTS #####
-
-plotPanels(df.coords, result.dtr, Y, Z.dtr)
-
-plot.U_ZERO_SIG.dtr <- plotMapFromDataFrame(
-  df.coords, 
-  conf.int.dtr$significant[(2*ncol(Z.tmp)+1):(2*ncol(Z.tmp)+nrow(Z.tmp))], 
-  c("#1A9850", "#D73027"),
-  TeX("U_0 significantly different from 0? (dtr)"),
-  labels = c(FALSE, 0.5, TRUE)
-)
-
-plot.U_PLUS_SIG.dtr <- plotMapFromDataFrame(
-  df.coords, 
-  conf.int.dtr$significant[(2*ncol(Z.tmp)+nrow(Z.tmp)+1):length(result.dtr$X_hat)], 
-  c("#1A9850", "#D73027"),
-  TeX("U_+ significantly different from 0? (dtr)"),
-  labels = c(FALSE, 0.5, TRUE)
-)
+# Save results for model checking
+save(coords, log.marg.post, result, Y, Z, file = str_glue("{data.dir}/RData/{RData.name}"))

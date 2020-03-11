@@ -1,6 +1,4 @@
-###########
-# IMPORTS #
-###########
+# IMPORTS -----------------------------------------------------------------
 
 library(elevatr)
 library(raster)
@@ -8,9 +6,7 @@ library(rgdal)
 library(rgeos)
 library(stringr)
 
-###########################
-# CONFIGURATION VARIABLES #
-###########################
+# CONFIGURATION VARIABLES -------------------------------------------------
 
 cname <- "Australia"
 ccode <- "aus"
@@ -43,12 +39,14 @@ vname.airt <- "t2m"
 
 ### DO NOT EDIT BELOW THIS LINE ###
 
-########################
-# FUNCTION DEFINITIONS #
-########################
+# HELPER FUNCTIONS --------------------------------------------------------
 
-# Flattens a RasterBrick object into a RasterLayer object that contains counts # of positive values at each grid
 flattenRaster <- function(raster, map, fun) {
+  #'
+  #'  Flattens a RasterBrick object into a RasterLayer object that contains counts 
+  #'  # of positive values at each grid.
+  #'  
+  
   args <- as.list(raster)
   # Count no. of non-zero values at each grid
   args$fun <- fun
@@ -58,9 +56,12 @@ flattenRaster <- function(raster, map, fun) {
   return(flattened)
 }
 
-# Lossfully compress polygon size by removing small polygons for faster processing times
-# Code from https://gis.stackexchange.com/a/62405/155373 
 getSmallPolys <- function(poly, minarea=0.01) {
+  #' 
+  #' Lossfully compress polygon size by removing small polygons for faster processing times
+  #' Code from https://gis.stackexchange.com/a/62405/155373 
+  #' 
+  
   # Get the areas
   areas <- lapply(poly@polygons, function(x) sapply(x@Polygons, function(y) y@area))
   # Which are the big polygons?
@@ -81,6 +82,7 @@ getSVPressure <- function(temp, is.water = TRUE) {
   #' See Eqn (7.5) in https://www.ecmwf.int/en/elibrary/16648-part-iv-physical-processes 
   #' for more details.
   #' 
+  
   a.1 <- 611.21
   a.3 <- ifelse(is.water, 17.502, 22.587)
   a.4 <- ifelse(is.water, 32.19, -0.7)
@@ -89,14 +91,11 @@ getSVPressure <- function(temp, is.water = TRUE) {
   return(a.1 * exp(a.3 * ((temp - T_0)/(temp - a.4))))
 }
 
-########
-# MAIN #
-########
+# MAIN --------------------------------------------------------------------
 
 setwd(working.dir)
 
 cpoly <- getData("GADM", path = str_glue("{data.dir}/rds"), country = cname, level = 1)
-# cpoly <- gSimplify(getSmallPolys(cpoly), tol = 0.01, topologyPreserve = TRUE)
 
 c.var <- raster::brick(fname.fire, varname = vname.fire)
 if (is.lowres) {
