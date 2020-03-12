@@ -1,43 +1,16 @@
+# CONFIGURATION VARIABLES -------------------------------------------------
+
+if (getOption("run.main", default = TRUE)) {
+  options(run.preprocess = TRUE)
+  source("~/Documents/diss/config.R")
+}
+
 # IMPORTS -----------------------------------------------------------------
 
 library(elevatr)
 library(raster)
 library(rgdal)
 library(rgeos)
-library(stringr)
-
-# CONFIGURATION VARIABLES -------------------------------------------------
-
-cname <- "Australia"
-ccode <- "aus"
-is.lowres <- TRUE
-lowres.factor <- 5
-month <- 12
-year <- 15
-working.dir <- "~/Documents/diss"
-
-month.str <- formatC(month, digits = 1, flag = "0", format = "d")
-year.str <- formatC(year, digits = 1, flag = "0", format = "d")
-
-data.dir <- str_glue("{working.dir}/data")
-csv.name <- str_glue("{data.dir}/csv/df_{ccode}_{ifelse(is.lowres, 'lores', 'hires')}.csv")
-
-storage.dir <- str_glue("/media/zegheim/Justin_SSD/nc_{ccode}")
-fname.fire <- str_glue("{storage.dir}/gfas/cams_gfas_ga_{year.str}{month.str}.nc")
-fname.era5 <- str_glue("{storage.dir}/era5/era5.land.data.nc")
-fname.airt <- str_glue("{storage.dir}/era5/t2m.nc")
-fname.temp <- str_glue("{storage.dir}/tair/tair_2015_cropped.nc")
-fname.dtrg <- str_glue("{storage.dir}/ceda/dtrg/cru_ts4.03.2001.2018.dtr.dat.nc")
-fname.prec <- str_glue("{storage.dir}/ceda/prec/cru_ts4.03.2001.2018.pre.dat.nc")
-
-vname.fire <- "frpfire"
-vname.prec <- "pre"
-vname.vapr <- "vap"
-vname.dewp <- "d2m"
-vname.dtrg <- "dtr"
-vname.airt <- "t2m"
-
-### DO NOT EDIT BELOW THIS LINE ###
 
 # HELPER FUNCTIONS --------------------------------------------------------
 
@@ -93,60 +66,60 @@ getSVPressure <- function(temp, is.water = TRUE) {
 
 # MAIN --------------------------------------------------------------------
 
-setwd(working.dir)
-
-cpoly <- getData("GADM", path = str_glue("{data.dir}/rds"), country = cname, level = 1)
-
-c.var <- raster::brick(fname.fire, varname = vname.fire)
-if (is.lowres) {
-  c.var <- aggregate(c.var, fact = lowres.factor, fun = mean)
+if (getOption("run.preprocess", default = FALSE)) {
+  cpoly <- getData("GADM", path = str_glue("{data.dir}/rds"), country = cname, level = 1)
+  
+  c.var <- raster::brick(fname.fire, varname = vname.fire)
+  if (is.lowres) {
+    c.var <- aggregate(c.var, fact = lowres.factor, fun = mean)
+  }
+  c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
+  
+  elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
+  elev.resampled <- resample(elev, c.var.flat)
+  names(elev.resampled) <- "elevation"
+  
+  dewp <- raster::brick(fname.era5, varname = vname.dewp)[[2]]
+  dewp.resampled <- resample(dewp, c.var.flat)
+  names(dewp.resampled) <- "dewpoint.temp"
+  
+  airt <- raster::brick(fname.airt, varname = vname.airt)[[2]]
+  airt.resampled <- resample(airt, c.var.flat)
+  names(airt.resampled) <- "air.temp.2m"
+  
+  dtrg <- raster::brick(fname.dtrg, varname = vname.dtrg)[[12 * (year - 1) + month]]
+  dtrg.resampled <- resample(dtrg, c.var.flat)
+  names(dtrg.resampled) <- "temp.range"
+  
+  temp <- raster::brick(fname.temp)[[month]]
+  temp.resampled <- resample(temp, c.var.flat)
+  names(temp.resampled) <- "avg.temp"
+  
+  prec <- raster::brick(fname.prec, varname = vname.prec)[[12 * (year - 1) + month]]
+  prec.resampled <- resample(prec, c.var.flat)
+  names(prec.resampled) <- "precipitation"
+  
+  # coerce to data.frame
+  data.raster <- mask(
+    stack(
+      c.var.flat,
+      elev.resampled,
+      prec.resampled,
+      temp.resampled,
+      airt.resampled,
+      dewp.resampled,
+      dtrg.resampled
+    ), 
+    cpoly
+  )
+  
+  df <- as.data.frame(data.raster, xy = TRUE, na.rm = TRUE)
+  df$x <- round(df$x, 2)
+  df$y <- round(df$y, 2)
+  df$elevation <- pmax(df$elevation, 0)
+  df$avg.temp <- df$avg.temp - 273.15
+  df$rel.humidity <- getSVPressure(df$dewpoint.temp) / getSVPressure(df$air.temp.2m)
+  df <- subset(df, select = -c(dewpoint.temp, air.temp.2m))
+  
+  write.csv(df, str_glue("{data.dir}/csv/{csv.name}"), row.names = FALSE)
 }
-c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
-
-elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
-elev.resampled <- resample(elev, c.var.flat)
-names(elev.resampled) <- "elevation"
-
-dewp <- raster::brick(fname.era5, varname = vname.dewp)[[2]]
-dewp.resampled <- resample(dewp, c.var.flat)
-names(dewp.resampled) <- "dewpoint.temp"
-
-airt <- raster::brick(fname.airt, varname = vname.airt)[[2]]
-airt.resampled <- resample(airt, c.var.flat)
-names(airt.resampled) <- "air.temp.2m"
-
-dtrg <- raster::brick(fname.dtrg, varname = vname.dtrg)[[12 * (year - 1) + month]]
-dtrg.resampled <- resample(dtrg, c.var.flat)
-names(dtrg.resampled) <- "temp.range"
-
-temp <- raster::brick(fname.temp)[[month]]
-temp.resampled <- resample(temp, c.var.flat)
-names(temp.resampled) <- "avg.temp"
-
-prec <- raster::brick(fname.prec, varname = vname.prec)[[12 * (year - 1) + month]]
-prec.resampled <- resample(prec, c.var.flat)
-names(prec.resampled) <- "precipitation"
-
-# coerce to data.frame
-data.raster <- mask(
-  stack(
-    c.var.flat,
-    elev.resampled,
-    prec.resampled,
-    temp.resampled,
-    airt.resampled,
-    dewp.resampled,
-    dtrg.resampled
-  ), 
-  cpoly
-)
-
-df <- as.data.frame(data.raster, xy = TRUE, na.rm = TRUE)
-df$x <- round(df$x, 2)
-df$y <- round(df$y, 2)
-df$elevation <- pmax(df$elevation, 0)
-df$avg.temp <- df$avg.temp - 273.15
-df$rel.humidity <- getSVPressure(df$dewpoint.temp) / getSVPressure(df$air.temp.2m)
-df <- subset(df, select = -c(dewpoint.temp, air.temp.2m))
-
-write.csv(df, csv.name, row.names = FALSE)

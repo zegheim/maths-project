@@ -1,27 +1,15 @@
-# IMPORTS -----------------------------------------------------------------
-
-library(extraDistr)
-library(MASS)
-library(Matrix)
-library(optimx)
-library(pals)
-library(profvis)
-library(pscl)
-library(rgeos)
-library(stringr)
-
 # CONFIGURATION VARIABLES -------------------------------------------------
 
-csv.name <- "df_ina_lores.csv"
-RData.name <- str_glue("result.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
-res <- 0.5
-working.dir <- "~/Documents/diss"
+if (getOption('run.main', default = TRUE)) {
+  options(run.model_fitting = TRUE)
+  source("~/Documents/diss/config.R")
+}
 
-data.dir <- str_glue("{working.dir}/data")
-proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
-seed <- 17071996L
+# IMPORTS -----------------------------------------------------------------
 
-# DO NOT EDIT BELOW THIS LINE ---------------------------------------------
+library(Matrix)
+library(optimx)
+library(pscl)
 
 # HELPER FUNCTIONS --------------------------------------------------------
 
@@ -301,29 +289,30 @@ runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 
   return(list(opt = opt, theta_hat = theta_hat, X_hat = X_hat, Q_hat = Q_hat))
 }
 
-# MAIN --------------------------------------------------------------------
+# MAIN  --------------------------------------------------------------------
 
-setwd(working.dir)
+if (getOption('run.model_fitting', default = FALSE)) {
+  df <- read.csv(str_glue("{data.dir}/csv/{csv.name}"))
+  coords <- df[c("x", "y")]
+  covars <- df[c("count", "temp.range", "rel.humidity")]
+  covars$temp.humidity <- covars$temp.range * covars$rel.humidity
+  
+  Y <- Matrix(covars$count)
+  Z <- Matrix(cbind(rep(1, length(Y)), as.matrix(subset(covars, select = -count))))
+  G <- getLaplMtrx(coords, res, verbose = TRUE)
+  
+  # Initial parameters
+  theta <- c(0, 0, 0, 0)
+  X <- rep(0, 2 * (ncol(Z) + nrow(Z)))
+  
+  # Run optimisation procedure
+  set.seed(seed)
+  counter <- 0
+  result <- runOptimProcedure(theta, X, Y, Z, G)
+  
+  log.marg.post <- -margPost(Y, Z, X, result$theta_hat, G) 
+  
+  # Save results for model checking
+  save(coords, log.marg.post, result, Y, Z, file = str_glue("{data.dir}/RData/{RData.name}"))
+}
 
-df <- read.csv(str_glue("{data.dir}/csv/{csv.name}"))
-coords <- df[c("x", "y")]
-covars <- df[c("count", "avg.temp", "rel.humidity")]
-covars$temp.humidity <- covars$avg.temp * covars$rel.humidity
-
-Y <- Matrix(covars$count)
-Z <- Matrix(cbind(rep(1, length(Y)), as.matrix(subset(covars, select = -count))))
-G <- getLaplMtrx(coords, res, verbose = TRUE)
-
-# Initial parameters
-theta <- c(0, 0, 0, 0)
-X <- rep(0, 2 * (ncol(Z) + nrow(Z)))
-
-# Run optimisation procedure
-counter <- 0
-set.seed(seed)
-result <- runOptimProcedure(theta, X, Y, Z, G)
-
-log.marg.post <- -margPost(Y, Z, X, result$theta_hat, G) 
-
-# Save results for model checking
-save(coords, log.marg.post, result, Y, Z, file = str_glue("{data.dir}/RData/{RData.name}"))

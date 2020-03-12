@@ -1,21 +1,18 @@
+# CONFIGURATION VARIABLES -------------------------------------------------
+
+if (getOption('run.main', default = TRUE)) {
+  options(run.model_checking = TRUE)
+  source("~/Documents/diss/config.R")
+}
+
 # IMPORTS -----------------------------------------------------------------
 
 library(gridExtra)
 library(latex2exp)
+library(pROC)
 library(raster)
 library(rasterVis)
 library(RColorBrewer)
-library(stringr)
-
-# CONFIGURATION VARIABLES -------------------------------------------------
-
-fname <- "result.20200311163133.RData"
-proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
-working.dir <- "~/Documents/diss"
-
-data.dir <- str_glue("{working.dir}/data")
-
-# DO NOT EDIT BELOW THIS LINE ---------------------------------------------
 
 # HELPER FUNCTIONS --------------------------------------------------------
 
@@ -27,6 +24,21 @@ getConfInt <- function(result, alpha = 0.05) {
   )
   conf.int$significant <- !(conf.int$lwr <= 0 & conf.int$upr >= 0)
   return(conf.int)
+}
+
+getProbs <- function(X, Z) {
+  ZBU_ZERO <- Z %*% X$B_ZERO + X$U_ZERO
+  return(1 / (1 + exp(-ZBU_ZERO)))
+}
+
+getRates <- function(X, Z) {
+  ZBU_PLUS <- Z %*% X$B_PLUS + X$U_PLUS
+  return(exp(ZBU_PLUS))
+}
+
+plotConfInts <- function(coords, interval) {
+  colours <- c("#1A9850", "#D73027")
+  labels <- c("")
 }
 
 plotMap <- function(raster, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0) {
@@ -72,17 +84,10 @@ plotMapFromDataFrame <- function(coords, data, colours, plot.title, labels = NUL
   plotMap(xyz.raster, colours, plot.title, labels = labels, bg.colour = bg.colour, padding = padding)
 }
 
-plotPanels <- function(coords, result, Y, Z) {
-  covar.names <- Z@Dimnames[[2]][2:(ncol(Z) - 1)]
-  B_ZERO_hat <- result$X_hat[1:ncol(Z)]
-  B_PLUS_hat <- result$X_hat[(ncol(Z)+1):(2*ncol(Z))]
-  U_ZERO_hat <- result$X_hat[(2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))]
-  U_PLUS_hat <- result$X_hat[(2*ncol(Z)+nrow(Z)+1):length(result$X_hat)]
-  ZBU_ZERO_hat <- Z %*% B_ZERO_hat + U_ZERO_hat
-  ZBU_PLUS_hat <- Z %*% B_PLUS_hat + U_PLUS_hat
-  PR_ZERO_hat <- 1 / (1 + exp(ZBU_ZERO_hat))
-  RT_PLUS_hat <- exp(ZBU_PLUS_hat)
-  E_Y_hat <- (1 -  PR_ZERO_hat) * RT_PLUS_hat / (1 - exp(-RT_PLUS_hat))
+plotPanels <- function(coords, X, Y, Z) {
+  PR_FIRE <- getProbs(X, Z)
+  RT_FIRE <- getRates(X, Z)
+  pred <-  PR_FIRE * RT_FIRE / (1 - exp(-RT_FIRE))
   
   colours <- rev(brewer.pal(9, "RdYlGn"))
   labels <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
@@ -94,20 +99,21 @@ plotPanels <- function(coords, result, Y, Z) {
   plots[[1]] <- plotMapFromDataFrame(coords, Y, colours, plot.title, labels = labels)
   # E(Y_i)
   plot.title <- TeX("Expected counts")
-  plots[[2]] <- plotMapFromDataFrame(coords, E_Y_hat, colours, plot.title, labels = labels)
+  plots[[2]] <- plotMapFromDataFrame(coords, pred, colours, plot.title, labels = labels)
   # U_ZERO_HAT
   plot.title <- TeX("Latent spatial effects $U_0$")
-  plots[[3]] <- plotMapFromDataFrame(coords, U_ZERO_hat, colours, plot.title)
+  plots[[3]] <- plotMapFromDataFrame(coords, X$U_ZERO, colours, plot.title)
   # U_PLUS_HAT
   plot.title <- TeX("Latent spatial effects $U_+$")
-  plots[[4]] <- plotMapFromDataFrame(coords, U_PLUS_hat, colours, plot.title)
+  plots[[4]] <- plotMapFromDataFrame(coords, X$U_PLUS, colours, plot.title)
   # P(Y_i > 0)
   plot.title <- TeX("$\\pi(X_i^T\\beta_0 + U_0)")
-  plots[[5]] <- plotMapFromDataFrame(coords, 1 - PR_ZERO_hat, colours, plot.title)
+  plots[[5]] <- plotMapFromDataFrame(coords, PR_FIRE, colours, plot.title)
   # Rate parameter for Y_i > 0
   plot.title <- TeX("$\\lambda(X_i^T\\beta_+ + U_+)")
-  plots[[6]] <- plotMapFromDataFrame(coords, RT_PLUS_hat, colours, plot.title)
+  plots[[6]] <- plotMapFromDataFrame(coords, RT_FIRE, colours, plot.title)
   
+  covar.names <- Z@Dimnames[[2]][2:(ncol(Z) - 1)]
   for (name in covar.names) {
     plot.title <- TeX(name)
     plots[[(length(plots)+1)]] <- plotMapFromDataFrame(coords, Z[, name], colours, plot.title)
@@ -116,12 +122,53 @@ plotPanels <- function(coords, result, Y, Z) {
   do.call("grid.arrange", c(plots, list(left = "Latitude", bottom = "Longitude")))
 }
 
+splitParams <- function(X, Z) {
+    return(list(
+      B_ZERO = X[1:ncol(Z)], 
+      B_PLUS = X[(ncol(Z)+1):(2*ncol(Z))], 
+      U_ZERO = X[(2*ncol(Z)+1):(2*ncol(Z)+nrow(Z))], 
+      U_PLUS = X[(2*ncol(Z)+nrow(Z)+1):length(X)]
+    ))
+}
+
 # MAIN --------------------------------------------------------------------
 
-setwd(working.dir)
-load(str_glue("{data.dir}/RData/{fname}"))
-
+if (getOption('run.model_checking', default = FALSE)) {
+  load(str_glue("{data.dir}/RData/{fname}"))
+  
+  X <- splitParams(result$X_hat, Z)
+  
+  # Assess GOF for "hurdle" part using ROC curve
+  obs.binary <- Y > 0
+  pred.binary <- getProbs(X, Z)
+  pROC.obj <- roc(
+    as.numeric(obs.binary), 
+    as.numeric(pred.binary),
+    plot = TRUE,
+    ci = TRUE, 
+    auc.polygon = TRUE,
+    max.auc.polygon = TRUE,
+    grid = TRUE,
+    print.auc = TRUE
+  )
+  
+  # Assess GOF of "count" part using (truncated) Poisson residuals
+  obs.count <- Y[Y > 0]
+  rate.count <- getRates(X, Z)[Y > 0]
+  pred.count <- rate.count / (1 - exp(-rate.count))
+  var.pred <- (rate.count + rate.count**2) / (1 - exp(-rate.count)) - (rate.count / (1 - exp(-rate.count)))**2
+  resids <- (obs.count - pred.count) / sqrt(var.pred)
+  plot(pred.count, resids)
+  
+  # Construct confidence intervals for parameters
+  conf.int <- getConfInt(result) 
+}
 
 # PLOTS -------------------------------------------------------------------
 
-plotPanels(coords, result, Y, Z)
+if (getOption('run.model_checking', default = FALSE)) {
+  plotPanels(coords, X, Y, Z)
+}
+
+
+
