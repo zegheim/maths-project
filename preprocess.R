@@ -122,4 +122,5 @@ if (getOption("run.preprocess", default = FALSE)) {
   df <- subset(df, select = -c(dewpoint.temp, air.temp.2m))
   
   write.csv(df, str_glue("{data.dir}/csv/{csv.name}"), row.names = FALSE)
+  options(run.preprocess = FALSE)
 }

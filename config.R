@@ -50,7 +50,7 @@ if (getOption("run.preprocess", default = FALSE)) {
 
 if (getOption("run.model_fitting", default = FALSE)) {
   csv.name <- "df_ina_lores.csv"
-  RData.name <- str_glue("result.aus.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
+  RData.name <- str_glue("result.ina.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
   res <- 0.5
   seed <- 17071996L
 }
@@ -67,5 +67,6 @@ if (getOption("run.model_checking", default = FALSE)) {
 if (getOption("run.simulation", default = FALSE)) {
   fname <- "result.ina.20200311163133.RData"
   proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+  RData.name <- str_glue("sim.ina.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
   seed <- 26031997L
 }

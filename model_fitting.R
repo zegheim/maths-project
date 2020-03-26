@@ -310,9 +310,9 @@ if (getOption('run.model_fitting', default = FALSE)) {
   counter <- 0
   result <- runOptimProcedure(theta, X, Y, Z, G)
   
-  log.marg.post <- -margPost(Y, Z, X, result$theta_hat, G) 
-  
   # Save results for model checking
-  save(coords, log.marg.post, result, Y, Z, file = str_glue("{data.dir}/RData/{RData.name}"))
+  save(coords, result, Y, Z, G, file = str_glue("{data.dir}/RData/{RData.name}"))
+  options(run.model_fitting = FALSE)
 }
+
 

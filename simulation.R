@@ -9,6 +9,7 @@ if (getOption("run.main", default = TRUE)) {
 
 library(extraDistr)
 library(gridExtra)
+library(latex2exp)
 sourceFunctions("model_checking.R")
 sourceFunctions("model_fitting.R")
 
@@ -52,6 +53,29 @@ if (getOption("run.simulation", default = FALSE)) {
   counter <- 0
   result.sim <- runOptimProcedure(theta.init, X.init, Y.sim, Z, G)
   
+  # Save results
+  save(coords, result.sim, Y.sim, Z, G, file = str_glue("{data.dir}/RData/{RData.name}"))
+  
   # Construct confidence intervals for parameters
-  conf.int <- getConfInt(result.sim) 
+  X.sim <- splitParams(result.sim$X_hat, Z)
+  conf.int <- getConfInt(X.sim, result.sim$Q_hat) 
+  
+  # CI plots
+  plot1 <- plotMapFromDataFrame(
+    coords,
+    conf.int$significant[conf.int$par == "U_ZERO"],
+    c("#1A9850", "#D73027"),
+    TeX("$U_0$ significantly different from zero?"),
+    labels = c(0, 0.5, 1)
+  )
+  plot2 <- plotMapFromDataFrame(
+    coords,
+    conf.int$significant[conf.int$par == "U_PLUS"],
+    c("#1A9850", "#D73027"),
+    TeX("$U_+$ significantly different from zero?"),
+    labels = c(0, 0.5, 1)
+  )
+  grid.arrange(plot1, plot2)
+
+  options(run.simulation = FALSE)
 }

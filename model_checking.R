@@ -7,8 +7,10 @@ if (getOption('run.main', default = TRUE)) {
 
 # IMPORTS -----------------------------------------------------------------
 
+library(extraDistr)
 library(gridExtra)
 library(latex2exp)
+library(Matrix)
 library(pROC)
 library(raster)
 library(rasterVis)
@@ -16,11 +18,17 @@ library(RColorBrewer)
 
 # HELPER FUNCTIONS --------------------------------------------------------
 
-getConfInt <- function(result, alpha = 0.05) {
-  Sigma_hat <- Matrix::solve(result$Q_hat, Matrix::Diagonal(nrow(result$Q_hat)))
+getConfInt <- function(X, Q, alpha = 0.05) {
+  Sigma <- Matrix::solve(Q, Matrix::Diagonal(nrow(Q)))
   conf.int <- data.frame(
-    lwr = as.numeric(result$X_hat) + qnorm(alpha/2) * sqrt(diag(Sigma_hat)),
-    upr = as.numeric(result$X_hat) + qnorm(1 - alpha/2) * sqrt(diag(Sigma_hat))
+    par = c(
+      rep("B_ZERO", length(X$B_ZERO)),
+      rep("B_PLUS", length(X$B_PLUS)),
+      rep("U_ZERO", length(X$U_ZERO)),
+      rep("U_PLUS", length(X$U_PLUS))
+    ),
+    lwr = as.numeric(unlist(X)) + qnorm(alpha/2) * sqrt(diag(Sigma)),
+    upr = as.numeric(unlist(X)) + qnorm(1 - alpha/2) * sqrt(diag(Sigma))
   )
   conf.int$significant <- !(conf.int$lwr <= 0 & conf.int$upr >= 0)
   return(conf.int)
@@ -122,6 +130,21 @@ plotPanels <- function(coords, X, Y, Z) {
   do.call("grid.arrange", c(plots, list(left = "Latitude", bottom = "Longitude")))
 }
 
+plotRootogram <- function(X, Y, Z, main = "mod.spatial") {
+  at <- 0:31
+  probs <- as.numeric(getProbs(X, Z))
+  rates <- as.numeric(getRates(X, Z))
+  pred.probs <- matrix(NA, nrow = length(rates), ncol = length(at))
+  pred.probs[, 1] <- 1 - as.numeric(probs)
+  for (i in 2:length(at)) {
+    pred.probs[, i] <- as.numeric(probs) * dtpois(at[i], as.numeric(rates), a = 0)
+  }
+  
+  obsrvd <- as.vector(xtabs(rep(1, NROW(Y)) ~ factor(as.numeric(Y), levels = at)))
+  expctd <- colSums(pred.probs)
+  rootogram.default(obsrvd, expctd, breaks = -1L:31.5, xlab = "count", main = main)
+}
+
 splitParams <- function(X, Z) {
     return(list(
       B_ZERO = X[1:ncol(Z)], 
@@ -161,14 +184,13 @@ if (getOption('run.model_checking', default = FALSE)) {
   plot(pred.count, resids)
   
   # Construct confidence intervals for parameters
-  conf.int <- getConfInt(result) 
+  conf.int <- getConfInt(X, result$Q_hat) 
 }
 
 # PLOTS -------------------------------------------------------------------
 
 if (getOption('run.model_checking', default = FALSE)) {
   plotPanels(coords, X, Y, Z)
+  plotRootogram(X, Y, Z)
+  options(run.model_checking = FALSE)
 }
-
-
-
