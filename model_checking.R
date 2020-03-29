@@ -7,6 +7,7 @@ if (getOption('run.main', default = TRUE)) {
 
 # IMPORTS -----------------------------------------------------------------
 
+library(countreg)
 library(extraDistr)
 library(gridExtra)
 library(latex2exp)
