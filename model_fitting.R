@@ -294,11 +294,11 @@ runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 
 if (getOption('run.model_fitting', default = FALSE)) {
   df <- read.csv(str_glue("{data.dir}/csv/{csv.name}"))
   coords <- df[c("x", "y")]
-  covars <- df[c("count", "temp.range", "rel.humidity")]
+  covars <- df[c("temp.range", "rel.humidity")]
   covars$temp.humidity <- covars$temp.range * covars$rel.humidity
   
-  Y <- Matrix(covars$count)
-  Z <- Matrix(cbind(rep(1, length(Y)), as.matrix(subset(covars, select = -count))))
+  Y <- Matrix(df$count)
+  Z <- Matrix(cbind(rep(1, length(Y)), as.matrix(covars)))
   G <- getLaplMtrx(coords, res, verbose = TRUE)
   
   # Initial parameters
