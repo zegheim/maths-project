@@ -269,7 +269,7 @@ margPost <- function(Y, Z, X, par, G, mu.theta = FALSE, Q.theta = FALSE, verbose
   }
 }
 
-runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 1e-4, itnmax = 1000) {
+runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 1e-4, itnmax = 1000, verbose = FALSE) {
   opt <- optimx(
     theta_init,
     margPost, 
@@ -278,6 +278,7 @@ runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 
     X = X_init, 
     G = G,
     acc = acc,
+    verbose = verbose,
     method = "Nelder-Mead",
     itnmax = itnmax, 
     control = list(kkt = FALSE, reltol = reltol)
@@ -294,8 +295,8 @@ runOptimProcedure <- function(theta_init, X_init, Y, Z, G, acc = 1e-4, reltol = 
 if (getOption('run.model_fitting', default = FALSE)) {
   df <- read.csv(str_glue("{data.dir}/csv/{csv.name}"))
   coords <- df[c("x", "y")]
-  covars <- df[c("temp.range", "rel.humidity")]
-  covars$temp.humidity <- covars$temp.range * covars$rel.humidity
+  covars <- df[c("skt", "rhm", "elev", "ptc")]
+  covars$sktrhm <- covars$skt * covars$rhm
   
   Y <- Matrix(df$count)
   Z <- Matrix(cbind(rep(1, length(Y)), as.matrix(covars)))
@@ -308,7 +309,7 @@ if (getOption('run.model_fitting', default = FALSE)) {
   # Run optimisation procedure
   set.seed(seed)
   counter <- 0
-  result <- runOptimProcedure(theta, X, Y, Z, G)
+  result <- runOptimProcedure(theta, X, Y, Z, G, acc = 5e-2, reltol = 1e-3)
   
   # Save results for model checking
   save(coords, result, Y, Z, G, file = str_glue("{data.dir}/RData/{RData.name}"))

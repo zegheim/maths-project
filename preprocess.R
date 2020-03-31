@@ -64,63 +64,41 @@ getSVPressure <- function(temp, is.water = TRUE) {
   return(a.1 * exp(a.3 * ((temp - T_0)/(temp - a.4))))
 }
 
+loadCovarRaster <- function(fname, vname, raster) {
+  covar <- raster(fname, varname = vname)
+  covar <- resample(covar, raster)
+  names(covar) <- vname
+  return(covar)
+}
+
 # MAIN --------------------------------------------------------------------
 
 if (getOption("run.preprocess", default = FALSE)) {
   cpoly <- getData("GADM", path = str_glue("{data.dir}/rds"), country = cname, level = 1)
   
-  c.var <- raster::brick(fname.fire, varname = vname.fire)
+  fire <- raster::brick(fname.fire, varname = vname.fire)
   if (is.lowres) {
-    c.var <- aggregate(c.var, fact = lowres.factor, fun = mean)
+    fire <- aggregate(fire, fact = lowres.factor, fun = sum)
   }
-  c.var.flat <- flattenRaster(c.var, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
+  fire <- flattenRaster(fire, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
   
-  elev <- get_elev_raster(c.var.flat, src = "aws", z = 6)
-  elev.resampled <- resample(elev, c.var.flat)
-  names(elev.resampled) <- "elevation"
-  
-  dewp <- raster::brick(fname.era5, varname = vname.dewp)[[2]]
-  dewp.resampled <- resample(dewp, c.var.flat)
-  names(dewp.resampled) <- "dewpoint.temp"
-  
-  airt <- raster::brick(fname.airt, varname = vname.airt)[[2]]
-  airt.resampled <- resample(airt, c.var.flat)
-  names(airt.resampled) <- "air.temp.2m"
-  
-  dtrg <- raster::brick(fname.dtrg, varname = vname.dtrg)[[12 * (year - 1) + month]]
-  dtrg.resampled <- resample(dtrg, c.var.flat)
-  names(dtrg.resampled) <- "temp.range"
-  
-  temp <- raster::brick(fname.temp)[[month]]
-  temp.resampled <- resample(temp, c.var.flat)
-  names(temp.resampled) <- "avg.temp"
-  
-  prec <- raster::brick(fname.prec, varname = vname.prec)[[12 * (year - 1) + month]]
-  prec.resampled <- resample(prec, c.var.flat)
-  names(prec.resampled) <- "precipitation"
+  airt <- loadCovarRaster(fname.airt, vname.airt, fire)
+  dewp <- loadCovarRaster(fname.dewp, vname.dewp, fire)
+  temp <- loadCovarRaster(fname.temp, vname.temp, fire)
+  elev <- loadCovarRaster(fname.elev, vname.elev, fire)
+  vegc <- loadCovarRaster(fname.vegc, vname.vegc, fire)
   
   # coerce to data.frame
-  data.raster <- mask(
-    stack(
-      c.var.flat,
-      elev.resampled,
-      prec.resampled,
-      temp.resampled,
-      airt.resampled,
-      dewp.resampled,
-      dtrg.resampled
-    ), 
-    cpoly
-  )
-  
+  data.raster <- mask(stack(fire, airt, dewp, temp, elev, vegc), cpoly)
   df <- as.data.frame(data.raster, xy = TRUE, na.rm = TRUE)
   df$x <- round(df$x, 2)
   df$y <- round(df$y, 2)
-  df$elevation <- pmax(df$elevation, 0)
-  df$avg.temp <- df$avg.temp - 273.15
-  df$rel.humidity <- getSVPressure(df$dewpoint.temp) / getSVPressure(df$air.temp.2m)
-  df <- subset(df, select = -c(dewpoint.temp, air.temp.2m))
+  df$ptc <- df$ptc / 100
+  df$skt <- df$skt - 273.15
+  df$rhm <- getSVPressure(df$d2m) / getSVPressure(df$t2m)
+  df <- subset(df, select = -c(d2m, t2m))
   
   write.csv(df, str_glue("{data.dir}/csv/{csv.name}"), row.names = FALSE)
   options(run.preprocess = FALSE)
 }
+

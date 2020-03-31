@@ -25,23 +25,24 @@ if (getOption("run.preprocess", default = FALSE)) {
   lowres.factor <- 5
   
   month <- 12
-  year <- 15
+  year <- 19
   month.str <- formatC(month, digits = 1, flag = "0", format = "d")
   year.str <- formatC(year, digits = 1, flag = "0", format = "d")
   
+  vname.fire <- "frpfire"
+  vname.airt <- "t2m"
+  vname.dewp <- "d2m"
+  vname.temp <- "skt"
+  vname.elev <- "elev"
+  vname.vegc <- "ptc"
+  
   storage.dir <- str_glue("/media/zegheim/Justin_SSD/nc_{ccode}")
   fname.fire <- str_glue("{storage.dir}/gfas/cams_gfas_ga_{year.str}{month.str}.nc")
-  fname.era5 <- str_glue("{storage.dir}/era5/era5.land.data.nc")
-  fname.airt <- str_glue("{storage.dir}/era5/t2m.nc")
-  fname.temp <- str_glue("{storage.dir}/tair/tair_2015_cropped.nc")
-  fname.dtrg <- str_glue("{storage.dir}/ceda/dtrg/cru_ts4.03.2001.2018.dtr.dat.nc")
-  fname.prec <- str_glue("{storage.dir}/ceda/prec/cru_ts4.03.2001.2018.pre.dat.nc")
-  
-  vname.fire <- "frpfire"
-  vname.prec <- "pre"
-  vname.dewp <- "d2m"
-  vname.dtrg <- "dtr"
-  vname.airt <- "t2m"
+  fname.airt <- str_glue("{storage.dir}/era5/{vname.airt}.{year.str}{month.str}.nc")
+  fname.dewp <- str_glue("{storage.dir}/era5/{vname.dewp}.{year.str}{month.str}.nc")
+  fname.temp <- str_glue("{storage.dir}/era5/{vname.temp}.{year.str}{month.str}.nc")
+  fname.elev <- str_glue("{storage.dir}/globalmaps/elevation/gm_el_v2.nc")
+  fname.vegc <- str_glue("{storage.dir}/globalmaps/ptc/gm_ve_v2.nc")
   
   csv.name <- str_glue("df_{ccode}_{ifelse(is.lowres, 'lores', 'hires')}.csv")
 }
@@ -49,8 +50,9 @@ if (getOption("run.preprocess", default = FALSE)) {
 # MODEL FITTING -----------------------------------------------------------
 
 if (getOption("run.model_fitting", default = FALSE)) {
-  csv.name <- "df_ina_lores.csv"
-  RData.name <- str_glue("result.ina.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
+  ccode <- "aus"
+  csv.name <- str_glue("df_{ccode}_lores.csv")
+  RData.name <- str_glue("result.{ccode}.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
   res <- 0.5
   seed <- 17071996L
 }
@@ -58,7 +60,7 @@ if (getOption("run.model_fitting", default = FALSE)) {
 # MODEL CHECKING ----------------------------------------------------------
 
 if (getOption("run.model_checking", default = FALSE)) {
-  fname <- "result.ina.20200311163133.RData"
+  fname <- "result.aus.20200330231943.RData"
   proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 }
 
