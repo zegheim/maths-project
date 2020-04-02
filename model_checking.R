@@ -19,15 +19,16 @@ library(RColorBrewer)
 
 # HELPER FUNCTIONS --------------------------------------------------------
 
-getConfInt <- function(X, Q, alpha = 0.05) {
+getConfInt <- function(X, Z, Q, alpha = 0.05) {
   Sigma <- Matrix::solve(Q, Matrix::Diagonal(nrow(Q)))
   conf.int <- data.frame(
     par = c(
-      rep("B_ZERO", length(X$B_ZERO)),
-      rep("B_PLUS", length(X$B_PLUS)),
+      paste(Z@Dimnames[[2]], "_0", sep = ""),
+      paste(Z@Dimnames[[2]], "_+", sep = ""),
       rep("U_ZERO", length(X$U_ZERO)),
       rep("U_PLUS", length(X$U_PLUS))
     ),
+    mean = as.numeric(unlist(X)),
     lwr = as.numeric(unlist(X)) + qnorm(alpha/2) * sqrt(diag(Sigma)),
     upr = as.numeric(unlist(X)) + qnorm(1 - alpha/2) * sqrt(diag(Sigma))
   )
@@ -133,17 +134,11 @@ plotPanels <- function(coords, X, Y, Z) {
   plot.title <- TeX("Latent spatial effects $U_+$")
   plots[[4]] <- plotMapFromDataFrame(coords, X$U_PLUS, colours, plot.title)
   # P(Y_i > 0)
-  plot.title <- TeX("$\\pi(X_i^T\\beta_0 + U_0)")
+  plot.title <- TeX("$\\pi(z_i^T\\beta_0 + U_0)")
   plots[[5]] <- plotMapFromDataFrame(coords, PR_FIRE, colours, plot.title)
   # Rate parameter for Y_i > 0
-  plot.title <- TeX("$\\lambda(X_i^T\\beta_+ + U_+)")
+  plot.title <- TeX("$\\lambda(z_i^T\\beta_+ + U_+)")
   plots[[6]] <- plotMapFromDataFrame(coords, RT_FIRE, colours, plot.title)
-  
-  covar.names <- Z@Dimnames[[2]][2:(ncol(Z) - 1)]
-  for (name in covar.names) {
-    plot.title <- TeX(name)
-    plots[[(length(plots)+1)]] <- plotMapFromDataFrame(coords, Z[, name], colours, plot.title)
-  }
   
   do.call("grid.arrange", c(plots, list(left = "Latitude", bottom = "Longitude")))
 }
@@ -178,7 +173,8 @@ splitParams <- function(X, Z) {
 
 if (getOption('run.model_checking', default = FALSE)) {
   load(str_glue("{data.dir}/RData/{fname}"))
-  
+  Z@Dimnames[[2]][1] <- "(Intercept)"
+  Z@Dimnames[[2]][6] <- "skt:rhm"
   X <- splitParams(result$X_hat, Z)
   
   # Assess GOF for "hurdle" part using ROC curve
@@ -194,7 +190,7 @@ if (getOption('run.model_checking', default = FALSE)) {
   resids <- (obs.count - pred.count) / sqrt(var.pred)
 
   # Construct confidence intervals for parameters
-  conf.int <- getConfInt(X, result$Q_hat)
+  conf.int <- getConfInt(X, Z, result$Q_hat)
 }
 
 # PLOTS -------------------------------------------------------------------
@@ -202,7 +198,6 @@ if (getOption('run.model_checking', default = FALSE)) {
 if (getOption('run.model_checking', default = FALSE)) {
   plotPanels(coords, X, Y, Z)
   plotRootogram(X, Y, Z)
-  
   
   par(mfrow = c(1, 2), pty = "s")
   plot.roc(

@@ -14,7 +14,7 @@ library(rgeos)
 
 # HELPER FUNCTIONS --------------------------------------------------------
 
-flattenRaster <- function(raster, map, fun) {
+flattenRaster <- function(raster, fun) {
   #'
   #'  Flattens a RasterBrick object into a RasterLayer object that contains counts 
   #'  # of positive values at each grid.
@@ -23,7 +23,6 @@ flattenRaster <- function(raster, map, fun) {
   args <- as.list(raster)
   # Count no. of non-zero values at each grid
   args$fun <- fun
-  # flattened <- mask(do.call(mosaic, args), map)
   flattened <- do.call(mosaic, args)
   names(flattened) <- "count"
   return(flattened)
@@ -80,7 +79,7 @@ if (getOption("run.preprocess", default = FALSE)) {
   if (is.lowres) {
     fire <- aggregate(fire, fact = lowres.factor, fun = sum)
   }
-  fire <- flattenRaster(fire, cpoly, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
+  fire <- flattenRaster(fire, function(x, na.rm) {sum(x > 0, na.rm = na.rm)})
   
   airt <- loadCovarRaster(fname.airt, vname.airt, fire)
   dewp <- loadCovarRaster(fname.dewp, vname.dewp, fire)
