@@ -309,7 +309,7 @@ if (getOption('run.model_fitting', default = FALSE)) {
   # Run optimisation procedure
   set.seed(seed)
   counter <- 0
-  result <- runOptimProcedure(theta, X, Y, Z, G, acc = 5e-2, reltol = 1e-3)
+  result <- runOptimProcedure(theta, X, Y, Z, G, verbose = TRUE, acc = 1e-2, reltol = 1e-2)
   
   # Save results for model checking
   save(coords, result, Y, Z, G, file = str_glue("{data.dir}/RData/{RData.name}"))

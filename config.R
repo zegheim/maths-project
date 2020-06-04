@@ -18,14 +18,14 @@ setwd(working.dir)
 # PREPROCESSING -----------------------------------------------------------
 
 if (getOption("run.preprocess", default = FALSE)) {
-  cname <- "Australia"
-  ccode <- "aus"
+  cname <- "Indonesia"
+  ccode <- "ina"
   
-  is.lowres <- TRUE
+  is.lowres <- FALSE
   lowres.factor <- 5
   
-  month <- 12
-  year <- 19
+  month <- 9
+  year <- 15
   month.str <- formatC(month, digits = 1, flag = "0", format = "d")
   year.str <- formatC(year, digits = 1, flag = "0", format = "d")
   
@@ -50,10 +50,11 @@ if (getOption("run.preprocess", default = FALSE)) {
 # MODEL FITTING -----------------------------------------------------------
 
 if (getOption("run.model_fitting", default = FALSE)) {
-  ccode <- "aus"
-  csv.name <- str_glue("df_{ccode}_lores.csv")
+  ccode <- "ina"
+  is.lowres <- FALSE
+  csv.name <- str_glue("df_{ccode}_{ifelse(is.lowres, 'lores', 'hires')}.csv")
   RData.name <- str_glue("result.{ccode}.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
-  res <- 0.5
+  res <- 0.1
   seed <- 17071996L
 }
 
