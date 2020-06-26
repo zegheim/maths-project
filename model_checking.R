@@ -2,7 +2,7 @@
 
 if (getOption('run.main', default = TRUE)) {
   options(run.model_checking = TRUE)
-  source("~/Documents/diss/config.R")
+  source("~/Documents/projects/diss/config.R")
 }
 
 # IMPORTS -----------------------------------------------------------------
@@ -70,7 +70,7 @@ plotConfInts <- function(coords, interval, plot.title, bg.colour = "skyblue", le
   )
 }
 
-plotMap <- function(raster, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0) {
+plotMap <- function(raster, colours, plot.title, layers, labels = NULL, bg.colour = "skyblue", padding = 0) {
   map.theme <- rasterTheme(region = colours, panel.background = list(col = bg.colour))
   map.theme$layout.heights[
     c(
@@ -103,42 +103,42 @@ plotMap <- function(raster, colours, plot.title, labels = NULL, bg.colour = "sky
   l$xlab <- NULL
   l$ylab <- NULL
   l$main <- plot.title
-  return(l)
+  return(l + layers)
 }
 
-plotMapFromDataFrame <- function(coords, data, colours, plot.title, labels = NULL, bg.colour = "skyblue", padding = 0.5) {
+plotMapFromDataFrame <- function(coords, data, colours, plot.title, layers, labels = NULL, bg.colour = "white", padding = 0.5) {
   xyz.raster <- getRasterFromDataFrame(coords, data, proj.str)
-  plotMap(xyz.raster, colours, plot.title, labels = labels, bg.colour = bg.colour, padding = padding)
+  plotMap(xyz.raster, colours, plot.title, layers, labels = labels, bg.colour = bg.colour, padding = padding)
 }
 
-plotPanels <- function(coords, X, Y, Z) {
+plotPanels <- function(coords, X, Y, Z, layers) {
   PR_FIRE <- getProbs(X, Z)
   RT_FIRE <- getRates(X, Z)
   pred <-  PR_FIRE * RT_FIRE / (1 - exp(-RT_FIRE))
   
-  colours <- rev(brewer.pal(9, "RdYlGn"))
+  colours <- brewer.pal(9, "Greys")
   labels <- c(0, 1, 2, 5, 10, 15, 20, 25, 31)
   
   plots <- list()
   
   # actual Y values
   plot.title <- TeX("Actual counts")
-  plots[[1]] <- plotMapFromDataFrame(coords, Y, colours, plot.title, labels = labels)
+  plots[[1]] <- plotMapFromDataFrame(coords, Y, colours, plot.title, layers, labels = labels)
   # E(Y_i)
   plot.title <- TeX("Expected counts")
-  plots[[2]] <- plotMapFromDataFrame(coords, pred, colours, plot.title, labels = labels)
+  plots[[2]] <- plotMapFromDataFrame(coords, pred, colours, plot.title, layers, labels = labels)
   # U_ZERO_HAT
   plot.title <- TeX("Latent spatial effects $U_0$")
-  plots[[3]] <- plotMapFromDataFrame(coords, X$U_ZERO, colours, plot.title)
+  plots[[3]] <- plotMapFromDataFrame(coords, X$U_ZERO, colours, plot.title, layers)
   # U_PLUS_HAT
   plot.title <- TeX("Latent spatial effects $U_+$")
-  plots[[4]] <- plotMapFromDataFrame(coords, X$U_PLUS, colours, plot.title)
+  plots[[4]] <- plotMapFromDataFrame(coords, X$U_PLUS, colours, plot.title, layers)
   # P(Y_i > 0)
   plot.title <- TeX("$\\pi(z_i^T\\beta_0 + U_0)")
-  plots[[5]] <- plotMapFromDataFrame(coords, PR_FIRE, colours, plot.title)
+  plots[[5]] <- plotMapFromDataFrame(coords, PR_FIRE, colours, plot.title, layers)
   # Rate parameter for Y_i > 0
   plot.title <- TeX("$\\lambda(z_i^T\\beta_+ + U_+)")
-  plots[[6]] <- plotMapFromDataFrame(coords, RT_FIRE, colours, plot.title)
+  plots[[6]] <- plotMapFromDataFrame(coords, RT_FIRE, colours, plot.title, layers)
   
   do.call("grid.arrange", c(plots, list(left = "Latitude", bottom = "Longitude")))
 }
@@ -169,7 +169,6 @@ splitParams <- function(X, Z) {
     ))
 }
 
-# MAIN --------------------------------------------------------------------
 
 if (getOption('run.model_checking', default = FALSE)) {
   load(str_glue("{data.dir}/RData/{fname}"))
@@ -188,7 +187,7 @@ if (getOption('run.model_checking', default = FALSE)) {
   pred.count <- rate.count / (1 - exp(-rate.count))
   var.pred <- pred.count - exp(-rate.count) * pred.count**2
   resids <- (obs.count - pred.count) / sqrt(var.pred)
-
+  
   # Construct confidence intervals for parameters
   conf.int <- getConfInt(X, Z, result$Q_hat)
 }
@@ -196,7 +195,9 @@ if (getOption('run.model_checking', default = FALSE)) {
 # PLOTS -------------------------------------------------------------------
 
 if (getOption('run.model_checking', default = FALSE)) {
-  plotPanels(coords, X, Y, Z)
+  cpoly <- getData("GADM", path = str_glue("{data.dir}/rds"), country = cname, level = 1)
+  layers <- layer(sp.lines(cpoly))
+  plotPanels(coords, X, Y, Z, layers)
   plotRootogram(X, Y, Z)
   
   par(mfrow = c(1, 2), pty = "s")

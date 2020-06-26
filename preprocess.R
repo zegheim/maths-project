@@ -2,7 +2,7 @@
 
 if (getOption("run.main", default = TRUE)) {
   options(run.preprocess = TRUE)
-  source("~/Documents/diss/config.R")
+  source("~/Documents/projects/diss/config.R")
 }
 
 # IMPORTS -----------------------------------------------------------------
@@ -96,7 +96,7 @@ if (getOption("run.preprocess", default = FALSE)) {
   df$skt <- df$skt - 273.15
   df$rhm <- getSVPressure(df$d2m) / getSVPressure(df$t2m)
   df <- subset(df, select = -c(d2m, t2m))
-  
+
   write.csv(df, str_glue("{data.dir}/csv/{csv.name}"), row.names = FALSE)
   options(run.preprocess = FALSE)
 }

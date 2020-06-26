@@ -10,22 +10,21 @@ sourceFunctions <- function(file) {
   options(run.main = TRUE)
 }
 
-working.dir <- "~/Documents/diss"
+working.dir <- "~/Documents/projects/diss"
 data.dir <- str_glue("{working.dir}/data")
+cname <- "Australia"
+ccode <- "aus"
 
 setwd(working.dir)
 
 # PREPROCESSING -----------------------------------------------------------
 
 if (getOption("run.preprocess", default = FALSE)) {
-  cname <- "Indonesia"
-  ccode <- "ina"
-  
-  is.lowres <- FALSE
+  is.lowres <- TRUE
   lowres.factor <- 5
   
-  month <- 9
-  year <- 15
+  month <- 12
+  year <- 19
   month.str <- formatC(month, digits = 1, flag = "0", format = "d")
   year.str <- formatC(year, digits = 1, flag = "0", format = "d")
   
