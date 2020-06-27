@@ -12,8 +12,8 @@ sourceFunctions <- function(file) {
 
 working.dir <- "~/Documents/projects/diss"
 data.dir <- str_glue("{working.dir}/data")
-cname <- "Australia"
-ccode <- "aus"
+cname <- "Indonesia"
+ccode <- "ina"
 
 setwd(working.dir)
 
@@ -23,8 +23,8 @@ if (getOption("run.preprocess", default = FALSE)) {
   is.lowres <- TRUE
   lowres.factor <- 5
   
-  month <- 12
-  year <- 19
+  month <- 9
+  year <- 15
   month.str <- formatC(month, digits = 1, flag = "0", format = "d")
   year.str <- formatC(year, digits = 1, flag = "0", format = "d")
   
@@ -61,14 +61,9 @@ if (getOption("run.model_fitting", default = FALSE)) {
 
 if (getOption("run.model_checking", default = FALSE)) {
   fname <- "result.aus.20200330231943.RData"
+  # fname <- "result.ina.20200330230617.RData"
   proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 }
 
-# SIMULATION --------------------------------------------------------------
-
-if (getOption("run.simulation", default = FALSE)) {
-  fname <- "result.ina.20200311163133.RData"
-  proj.str <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
-  RData.name <- str_glue("sim.ina.{strftime(Sys.time(), format = '%Y%m%d%H%M%S')}.RData")
-  seed <- 26031997L
-}
+# SIMULATION 
+  
